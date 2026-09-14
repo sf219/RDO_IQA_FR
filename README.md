@@ -39,10 +39,9 @@ REPRODUCE.md   every number in the paper, the command that produced it, and the 
 
 | paper item | script in `experiments/` |
 |---|---|
-| Table 1, Fig. 4 | `plots/make_all.py`, `plots/figs.py` |
+| Table 1 (Kodak + CLIC), Fig. 4 | `plots/make_all.py`, `clic_run.py`, `clic_table.py`, `combined_table.py`, `plots/figs.py` |
 | Table 2 | `ablation_table.py` |
-| Table 3 | `clic_run.py`, `clic_table.py` |
-| Table 4 | `litqp_variant2.sh`, `litqp_score.py`, `lit_table4.py` |
+| Table 3 | `litqp_variant2.sh`, `litqp_score.py`, `lit_table4.py` |
 | Fig. 3 | `maps_fig.py` |
 | Fig. 5 | `timebench_v2.sh`, `complexity_csv.py`, `complexity_bar.py` |
 | Fig. 6 | `probes_fig.py` |

@@ -3,4 +3,4 @@ row,at_ypsnr,lpips_base,lpips_bd,lpips_inside,lpips_n_alpha,dists_base,dists_bd,
 "diagonal GN, smoothed $\sigma{=}3$",8.147867030177343,wlpips_gnj3,-11.119238942241896,1,7,wdists_dgnj3,-11.112281524648884,1,7,wwd_gnj3,-13.472105082757338,1,10
 "block GN, $R{=}1$",8.147867030177343,wlpips_gnb8,-10.355345430139874,1,7,wdists_dgnb8,-14.456236370280383,1,7,wwd_gnb8,-15.011135584958492,1,7
 "block GN, smoothed $\sigma{=}3$",8.147867030177343,wlpips_bh8,-15.536271447498464,1,7,wdists_dgnb8j3,-17.331350173574414,1,7,wwd_gnb8j3,-19.083680765667037,1,7
-"block Hutchinson (HVP), PSD, same $m$",8.147867030177343,wlpips_hb8m256psd,-9.471688995036551,1,5,wdists_dhb8m256psd,-10.596417054264284,1,5,wwd_hb8m256psd,,,
+"block Hutchinson (HVP), PSD, same $m$",8.147867030177343,wlpips_hb8m256psd,-9.471688995036551,1,5,wdists_dhb8m256psd,-10.596417054264284,1,5,wwd_hb8m256psd,-15.017891364649941,1,5
