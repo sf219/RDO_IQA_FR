@@ -47,8 +47,8 @@ itself with the same code.
 | LPIPS (VGG) | `--estimator gn --probes 256 --jitter 3 --weight-tag gnj3` | `--estimator gnblock --probes 256 --jitter 3 --weight-tag bh8` |
 | DISTS | `--estimator gn --probes 256 --jitter 3 --weight-tag dgnj3` | `--estimator gnblock --probes 256 --jitter 3 --weight-tag dgnb8j3` |
 | WD (log2 sigma = 2) | `--estimator gn --probes 256 --jitter 3 --wd-sigma 2 --weight-tag gnj3` | `--estimator gnblock --probes 256 --jitter 3 --wd-sigma 2 --vjp-batch 1 --weight-tag gnb8j3` |
-| LPIPS-Alex (Table 4) | `--metric LPIPS_ALEX --estimator gn --probes 256 --jitter 3 --weight-tag alexd` | `--metric LPIPS_ALEX --estimator gnblock --probes 256 --jitter 3 --weight-tag alexb8` |
-| MS-SSIM on RGB (Table 4) | `--metric MS_SSIM_RGB --estimator hutch --probes 256 --weight-tag mrgbd` | `--metric MS_SSIM_RGB --estimator hutchblock --probes 256 --weight-tag mrgbb8` |
+| LPIPS-Alex (Table 3) | `--metric LPIPS_ALEX --estimator gn --probes 256 --jitter 3 --weight-tag alexd` | `--metric LPIPS_ALEX --estimator gnblock --probes 256 --jitter 3 --weight-tag alexb8` |
+| MS-SSIM on RGB (Table 3) | `--metric MS_SSIM_RGB --estimator hutch --probes 256 --weight-tag mrgbd` | `--metric MS_SSIM_RGB --estimator hutchblock --probes 256 --weight-tag mrgbb8` |
 
 Estimators: `hutch` / `hutchblock` = Hutchinson diagonal / block (Eq. 4 of the paper), `gn` / `gnblock` =
 Gauss--Newton diagonal / block (Eq. 5). `--jitter 3` is the smoothing sigma (8-bit units) with R = m/16 rounds;
@@ -78,7 +78,7 @@ configuration tags end in `_rdoq`). Anchor encodes (`anchor_qp<QP>`) come from t
 | `wwd_gnj3` (WD diagonal, Table 1) | 0.03125 0.0625 0.125 0.25 0.5 1 2 3 4 6 |
 | Table 2 unsmoothed rows: `wlpips_gn`, `wlpips_gnb8`, `wdists_dgn`, `wdists_dgnb8`, `wwd_gnb8` (`wwd_gn` adds 0.125) | 0.25 0.5 1 2 3 4 6 |
 | Table 2 PSD HVP row `*psd`; probe sweep of Fig. 6 `*n<m>` | 0.25 0.5 1 2 4 |
-| Table 4 (VTM-23.0 grids): `qpmap_*`, `rq_*`, `rqb_*` | 0.25 0.5 1 2 4 (`qpmap_*` also 0) |
+| Table 3 (VTM-23.0 grids): `qpmap_*`, `rq_*`, `rqb_*` | 0.25 0.5 1 2 4 (`qpmap_*` also 0) |
 
 MS-SSIM is scored with the standard 5-level MS-SSIM (`method/msssim_std.py`, sigma = 1.5 window); the WD column
 is `wd2` (log2 sigma = 2). `PerceptQPA` baseline: encodes with `--PerceptQPA=1`, BD-rates by
@@ -109,7 +109,7 @@ All scripts live in `experiments/` and read the CSV summaries under `experiments
   (`HW_YUV_RANGE=full`). Every result, maps and scoring alike, uses this one convention.
 * **BD-rate** is piecewise-linear in log-rate over the shared quality range, not the cubic fit.
 * **Matched cost.** Tables 1-3 and Fig. 6 read every row at `PerceptQPA`'s Y-PSNR BD-rate by linear interpolation
-  along the tau sweep, inside the sweep only; Table 4 at the RGB-PSNR cost Yang and Bajic report.
+  along the tau sweep, inside the sweep only; Table 3 at the RGB-PSNR cost Yang and Bajic report.
 * **Weighted RDOQ** (`--WeightedRdoq=1`) is on in every result of the paper.
 * **Hutchinson block tiles** are indefinite for the neural-network metrics (42 % of the eigenvalue mass negative for
   DISTS); the paper's HVP row uses `--psd eigh`.
