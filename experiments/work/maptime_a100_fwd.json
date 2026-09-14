@@ -1,0 +1,9 @@
+{
+ "_card": "NVIDIA A100-PCIE-40GB", "_note": "forward-over-reverse Hutchinson, Gauss-Newton at vjp-batch 4",
+ "_probes": 256, "_images": 3,
+ "SSIM|diag": 1.1, "SSIM|block": 1.0,
+ "MS_SSIM|diag": 1.3, "MS_SSIM|block": 1.3,
+ "LPIPS|diag": 4.4, "LPIPS|block": 3.1,
+ "DISTS|diag": 3.7, "DISTS|block": 3.8,
+ "WD|diag": 10.4, "WD|block": 9.4
+}

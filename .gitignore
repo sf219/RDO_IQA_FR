@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.bak
+*.orig
+work/enc/
+work/enc230/
+work/weights/
+work/yuv/
+work/raw/
+work/*.log
+work/*.out
+logs/
+build/
+bin/
+*.bin
+*.yuv

@@ -1,0 +1,10 @@
+torch>=2.0
+torchvision
+numpy
+scipy
+matplotlib
+Pillow
+pyyaml
+lpips
+DISTS_pytorch
+pytorch_msssim

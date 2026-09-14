@@ -1,0 +1,18 @@
+{
+ "wssim_sbh8m256": 1.0,
+ "wssim_sn256": 0.25,
+ "wdists_dgn": 1.0,
+ "wdists_dgnb8": 2.0,
+ "wlpips_gn": 0.5,
+ "wlpips_gnb8": 1.0,
+ "wms_ssim_mn256": 0.25,
+ "wms_ssim_mbh8m256": 1.0,
+ "wwd_gn": 0.125,
+ "wwd_gnb8": 2.0,
+ "wwd_gnj3": 0.0625,
+ "wwd_gnb8j3": 1.0,
+ "wlpips_gnj3": 0.25,
+ "wlpips_bh8": 0.5,
+ "wdists_dgnj3": 0.5,
+ "wdists_dgnb8j3": 2.0
+}

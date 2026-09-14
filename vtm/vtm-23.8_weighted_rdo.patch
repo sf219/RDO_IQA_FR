@@ -1,0 +1,1787 @@
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/App/EncoderApp/EncAppCfg.cpp VTM_WMSE/source/App/EncoderApp/EncAppCfg.cpp
+--- VTM_stock/source/App/EncoderApp/EncAppCfg.cpp	2025-02-14 06:27:09.116046302 -0800
++++ VTM_WMSE/source/App/EncoderApp/EncAppCfg.cpp	2026-08-31 11:49:00.932705159 -0700
+@@ -1124,6 +1124,12 @@
+   ("EncDbOpt",                                        m_encDbOpt,                                       false, "Encoder optimization with deblocking filter")
+   ("AlfLambdaOpt",                                    m_encALFOpt,                                      false, "Encoder optimization with adaptive loop filter")
+   ("LMCSEnable",                                      m_lmcsEnabled,                                    false, "Enable LMCS (luma mapping with chroma scaling")
++  ("WeightedRdo",                                     m_weightedRdo,                                    false, "Enable weighted-MSE RDO driven by a per-pixel importance map")
++  ("WeightedRdoFile",                                 m_weightsFile,                            std::string(""), "Binary file with the per-pixel importance weights (Y, Cb, Cr float32 planes)")
++  ("WeightedRdoTau",                                  m_weightedRdoTau,                                    0.0, "Shrink the importance map towards uniform: w <- (w + tau)/(1 + tau)")
++  ("WeightedRdoq",                                    m_weightedRdoq,                                   false, "Also scale the transform-domain (RDOQ) lambda by the mean weight of the block")
++  ("WeightedRdoGlobalNorm",                           m_weightedRdoGlobalNorm,                          false, "Normalise the three weight planes together, keeping the metric's luma/chroma balance, instead of one mean per plane")
++  ("WeightedRdoBlockFile",                            m_weightedRdoBlockFile,                   std::string(""), "Binary file with per-block Hessians (non-diagonal); overrides the diagonal weighting")
+   ("LMCSSignalType",                                  m_reshapeSignalType,                                 0u, "Input signal type: 0:SDR, 1:HDR-PQ, 2:HDR-HLG")
+   ("LMCSUpdateCtrl",                                  m_updateCtrl,                                         0, "LMCS model update control: 0:RA, 1:AI, 2:LDB/LDP")
+   ("LMCSAdpOption",                                   m_adpOption,                                          0, "LMCS adaptation options: 0:automatic(default),"
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/App/EncoderApp/EncAppCfg.h VTM_WMSE/source/App/EncoderApp/EncAppCfg.h
+--- VTM_stock/source/App/EncoderApp/EncAppCfg.h	2025-02-14 06:27:09.116046302 -0800
++++ VTM_WMSE/source/App/EncoderApp/EncAppCfg.h	2026-08-31 11:49:00.930705167 -0700
+@@ -409,6 +409,14 @@
+   std::vector<unsigned> m_virtualBoundariesPosX;
+   std::vector<unsigned> m_virtualBoundariesPosY;
+   bool      m_lmcsEnabled;
++
++  // weighted-MSE RDO
++  bool        m_weightedRdo;
++  std::string m_weightsFile;
++  double      m_weightedRdoTau;
++  bool        m_weightedRdoq;
++  bool        m_weightedRdoGlobalNorm;
++  std::string m_weightedRdoBlockFile;
+   uint32_t  m_reshapeSignalType;
+   uint32_t  m_intraCMD;
+   ReshapeCW m_reshapeCW;
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/App/EncoderApp/EncApp.cpp VTM_WMSE/source/App/EncoderApp/EncApp.cpp
+--- VTM_stock/source/App/EncoderApp/EncApp.cpp	2025-02-14 06:27:09.112046321 -0800
++++ VTM_WMSE/source/App/EncoderApp/EncApp.cpp	2026-08-31 11:49:00.932705159 -0700
+@@ -1520,6 +1520,12 @@
+   m_cEncLib.setCCALFQpThreshold                                  ( m_ccalfQpThreshold );
+   m_cEncLib.setGOPBasedRPRQPThreshold                            (m_gopBasedRPRQPThreshold);
+   m_cEncLib.setLmcs                                              ( m_lmcsEnabled );
++  m_cEncLib.setWeightedRdo                                       ( m_weightedRdo );
++  m_cEncLib.setWeightsFile                                       ( m_weightsFile );
++  m_cEncLib.setWeightedRdoTau                                    ( m_weightedRdoTau );
++  m_cEncLib.setWeightedRdoq                                      ( m_weightedRdoq );
++  m_cEncLib.setWeightedRdoGlobalNorm                             ( m_weightedRdoGlobalNorm );
++  m_cEncLib.setWeightedRdoBlockFile                              ( m_weightedRdoBlockFile );
+   m_cEncLib.setReshapeSignalType                                 ( m_reshapeSignalType );
+   m_cEncLib.setReshapeIntraCMD                                   ( m_intraCMD );
+   m_cEncLib.setReshapeCW                                         ( m_reshapeCW );
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/CommonLib/RdCost.cpp VTM_WMSE/source/Lib/CommonLib/RdCost.cpp
+--- VTM_stock/source/Lib/CommonLib/RdCost.cpp	2025-02-14 06:27:09.128046247 -0800
++++ VTM_WMSE/source/Lib/CommonLib/RdCost.cpp	2026-09-03 13:12:52.542438092 -0700
+@@ -369,7 +369,9 @@
+   Distortion dist;
+   if (isChroma(compID) && (m_signalType == RESHAPE_SIGNAL_SDR || m_signalType == RESHAPE_SIGNAL_HLG))
+   {
+-       cDtParam.distFunc = m_distortionFunc[DFunc::SSE + sizeOffset<false>(org.width)];
++       cDtParam.distFunc = attachWeights(cDtParam, org, compID)
++                             ? DistFunc(xGetSSEWeighted)
++                             : m_distortionFunc[DFunc::SSE + sizeOffset<false>(org.width)];
+        int64_t weight = m_chromaWeight;
+        dist = (weight * cDtParam.distFunc(cDtParam ) + (1 << MSE_WEIGHT_FRAC_BITS >> 1)) >> (MSE_WEIGHT_FRAC_BITS);
+   }
+@@ -377,8 +379,17 @@
+   {
+     cDtParam.cShiftX = getComponentScaleX(compID,  m_cf);
+     cDtParam.cShiftY = getComponentScaleY(compID,  m_cf);
+-    cDtParam.distFuncWtd = m_distortionFuncWtd[distFuncWtd + sizeOffset<false>(org.width)];
+-    dist = cDtParam.distFuncWtd(this, cDtParam);
++    if (attachWeights(cDtParam, org, compID))
++    {
++      // the block-Hessian form is defined on the plain error, so the luma-level reshaping
++      // weight is folded in as a scalar over the block rather than per sample
++      dist = m_weightMap->hasBlocks() ? xGetSSEBlockHessian(cDtParam) : xGetSSEWeighted_WTD(cDtParam);
++    }
++    else
++    {
++      cDtParam.distFuncWtd = m_distortionFuncWtd[distFuncWtd + sizeOffset<false>(org.width)];
++      dist = cDtParam.distFuncWtd(this, cDtParam);
++    }
+   }
+   if (isChroma(compID))
+   {
+@@ -398,7 +409,16 @@
+   cDtParam.bitDepth   = bitDepth;
+   cDtParam.compID     = compID;
+ 
+-  cDtParam.distFunc = m_distortionFunc[distFunc + sizeOffset<false>(org.width)];
++  if (distFunc == DFunc::SSE && attachWeights(cDtParam, org, compID))
++  {
++    cDtParam.distFunc = m_weightMap->hasBlocks()
++                          ? DistFunc([this](const DistParam &p) { return xGetSSEBlockHessian(p); })
++                          : DistFunc(xGetSSEWeighted);
++  }
++  else
++  {
++    cDtParam.distFunc = m_distortionFunc[distFunc + sizeOffset<false>(org.width)];
++  }
+ 
+   if (isChroma(compID))
+   {
+@@ -411,6 +431,312 @@
+ }
+ 
+ // ====================================================================================================================
++// Weighted-MSE RDO
++// ====================================================================================================================
++
++bool RdCost::resolveOrgPos(const ComponentID compID, const Pel *p, ptrdiff_t stride, int &x, int &y) const
++{
++  for (int slot = 0; slot < 2; slot++)
++  {
++    const Pel *origin = m_orgOrigin[slot][compID];
++    if (origin == nullptr || stride != m_orgOriginStride[slot][compID])
++    {
++      continue;
++    }
++
++    const ptrdiff_t off = p - origin;
++    if (off < 0 || off >= m_orgOriginStride[slot][compID] * (ptrdiff_t) m_orgOriginHeight[slot][compID])
++    {
++      continue;
++    }
++
++    const int xx = (int) (off % m_orgOriginStride[slot][compID]);
++    const int yy = (int) (off / m_orgOriginStride[slot][compID]);
++    if (xx >= m_orgOriginWidth[slot][compID])
++    {
++      continue;
++    }
++
++    x = xx;
++    y = yy;
++    return true;
++  }
++  return false;
++}
++
++//! attach the importance weights of the block that "org" points at; returns false when the block
++//! could not be located in the source picture (residual-domain distortions, temporary buffers, ...)
++bool RdCost::attachWeights(DistParam &dp, const CPelBuf &org, const ComponentID compID) const
++{
++  dp.weights      = nullptr;
++  dp.weightStride = 0;
++
++  if (m_weightMap == nullptr || !m_weightMap->isEnabled())
++  {
++    return false;
++  }
++
++  int x = 0;
++  int y = 0;
++  if (!resolveOrgPos(compID, org.buf, org.stride, x, y))
++  {
++    m_unweightedCalls++;
++    return false;
++  }
++
++  if (x + (int) org.width > m_weightMap->getWidth(compID) || y + (int) org.height > m_weightMap->getHeight(compID))
++  {
++    m_unweightedCalls++;
++    return false;
++  }
++
++  const float *w = m_weightMap->getPtr(compID, x, y);
++  if (w == nullptr)
++  {
++    m_unweightedCalls++;
++    return false;
++  }
++
++  dp.weights      = w;
++  dp.weightStride = m_weightMap->getStride(compID);
++  dp.blkX         = x;
++  dp.blkY         = y;
++  m_weightedCalls++;
++  return true;
++}
++
++Distortion RdCost::xGetSSEWeighted(const DistParam &rcDtParam)
++{
++  const Pel   *piOrg     = rcDtParam.org.buf;
++  const Pel   *piCur     = rcDtParam.cur.buf;
++  const float *piWeight  = rcDtParam.weights;
++  const ptrdiff_t strideOrg = rcDtParam.org.stride;
++  const ptrdiff_t strideCur = rcDtParam.cur.stride;
++  const ptrdiff_t strideWgt = rcDtParam.weightStride;
++  const int    cols      = rcDtParam.org.width;
++  int          rows      = rcDtParam.org.height;
++
++  const uint32_t shift = DISTORTION_PRECISION_ADJUSTMENT(rcDtParam.bitDepth) << 1;
++
++  double sum = 0.0;
++  for (; rows != 0; rows--)
++  {
++    for (int n = 0; n < cols; n++)
++    {
++      const int64_t diff = piOrg[n] - piCur[n];
++      sum += (double) (diff * diff) * (double) piWeight[n];
++    }
++    piOrg += strideOrg;
++    piCur += strideCur;
++    piWeight += strideWgt;
++  }
++
++  return (Distortion) (sum / (double) (1 << shift));
++}
++
++//! sum over the blk x blk tiles the block overlaps of  e^T H_t e,  with e zero outside the
++//! block, which handles partial tiles and sub-tile transform units without special cases.
++Distortion RdCost::xGetSSEBlockHessian(const DistParam &rcDtParam) const
++{
++  const Pel      *piOrg = rcDtParam.org.buf;
++  const Pel      *piCur = rcDtParam.cur.buf;
++  const ptrdiff_t so    = rcDtParam.org.stride;
++  const ptrdiff_t sc    = rcDtParam.cur.stride;
++  const int       cols  = rcDtParam.org.width;
++  const int       rows  = rcDtParam.org.height;
++  const ComponentID compID = rcDtParam.compID;
++
++  const int   blk = m_weightMap->getBlkSize();
++  const int   n   = blk * blk;
++  const int   x0  = rcDtParam.blkX;
++  const int   y0  = rcDtParam.blkY;
++
++  static thread_local std::vector<double> e;
++  e.resize(n);
++
++  const uint32_t shift = DISTORTION_PRECISION_ADJUSTMENT(rcDtParam.bitDepth) << 1;
++  double sum = 0.0;
++
++  const int tx0 = x0 / blk, tx1 = (x0 + cols - 1) / blk;
++  const int ty0 = y0 / blk, ty1 = (y0 + rows - 1) / blk;
++
++  for (int ty = ty0; ty <= ty1; ty++)
++  {
++    for (int tx = tx0; tx <= tx1; tx++)
++    {
++      const bool   useFac = m_weightMap->hasFactors();
++      const float *F      = useFac ? m_weightMap->getBlockFactor(compID, tx, ty) : nullptr;
++      const float *M      = useFac ? nullptr : m_weightMap->getBlockMatrix(compID, tx, ty);
++      if ((useFac && F == nullptr) || (!useFac && M == nullptr))
++      {
++        continue;
++      }
++      std::fill(e.begin(), e.end(), 0.0);
++      bool any = false;
++      for (int r = 0; r < blk; r++)
++      {
++        const int gy = ty * blk + r;             // absolute row
++        const int ly = gy - y0;                  // row inside the coded block
++        if (ly < 0 || ly >= rows)
++        {
++          continue;
++        }
++        for (int c = 0; c < blk; c++)
++        {
++          const int gx = tx * blk + c;
++          const int lx = gx - x0;
++          if (lx < 0 || lx >= cols)
++          {
++            continue;
++          }
++          e[r * blk + c] = (double) (piOrg[ly * so + lx] - piCur[ly * sc + lx]);
++          any = true;
++        }
++      }
++      if (!any)
++      {
++        continue;
++      }
++      if (!useFac && m_weightMap->blockPlaneIsDiagonal(compID))
++      {
++        // all off-diagonals of this plane's tiles are exactly zero: the dense kernel below
++        // would evaluate e_i (M_ii e_i + 2*0) per row, so this is the same double, in O(n)
++        double q = 0.0;
++        for (int i = 0; i < n; i++)
++        {
++          const float ei = (float) e[i];
++          if (ei == 0.f)
++          {
++            continue;
++          }
++          q += (double) ei * ((double) M[(size_t) i * n + i] * ei + 0.0);
++        }
++        sum += q;
++        continue;
++      }
++      if (useFac)
++      {
++        // e^T (F F^T + add I) e = sum_k (F_k . e)^2 + add * ||e||^2,  K*n MACs instead of n*n
++        const int    K   = m_weightMap->getK();
++        const double add = m_weightMap->getFacAdd();
++        float ef[1024];
++        double ee = 0.0;
++        for (int i = 0; i < n; i++)
++        {
++          ef[i] = (float) e[i];
++          ee += e[i] * e[i];
++        }
++        double q = 0.0;
++        for (int k = 0; k < K; k++)
++        {
++          const float *Fk = F + (size_t) k * n;
++          float a0 = 0.f, a1 = 0.f, a2 = 0.f, a3 = 0.f;
++          int i = 0;
++          for (; i + 3 < n; i += 4)
++          {
++            a0 += Fk[i] * ef[i];
++            a1 += Fk[i + 1] * ef[i + 1];
++            a2 += Fk[i + 2] * ef[i + 2];
++            a3 += Fk[i + 3] * ef[i + 3];
++          }
++          for (; i < n; i++)
++          {
++            a0 += Fk[i] * ef[i];
++          }
++          const double acc = (double) ((a0 + a1) + (a2 + a3));
++          q += acc * acc;
++        }
++        if (m_weightMap->hasFacDiag())
++        {
++          const float *Dr = m_weightMap->getBlockFacDiag(compID, tx, ty);
++          double dq = 0.0;
++          for (int i = 0; i < n; i++)
++          {
++            dq += (double) Dr[i] * ef[i] * ef[i];
++          }
++          q += dq;
++        }
++        sum += q + add * ee;
++        continue;
++      }
++      // Exact tile form, exploiting symmetry (tiles are symmetrised at load):
++      //   e^T M e = sum_i e_i ( M_ii e_i + 2 sum_{j>i} M_ij e_j )
++      // Half the memory traffic of the full matvec, float with independent accumulators so
++      // the contiguous inner loop vectorises; the per-tile total is accumulated in double.
++      {
++        float ef[1024];
++        for (int i = 0; i < n; i++)
++        {
++          ef[i] = (float) e[i];
++        }
++        double q = 0.0;
++        for (int i = 0; i < n; i++)
++        {
++          const float ei = ef[i];
++          if (ei == 0.f)
++          {
++            continue;
++          }
++          const float *Mi = M + (size_t) i * n;
++          float s0 = 0.f, s1 = 0.f, s2 = 0.f, s3 = 0.f;
++          int j = i + 1;
++          for (; j + 3 < n; j += 4)
++          {
++            s0 += Mi[j] * ef[j];
++            s1 += Mi[j + 1] * ef[j + 1];
++            s2 += Mi[j + 2] * ef[j + 2];
++            s3 += Mi[j + 3] * ef[j + 3];
++          }
++          for (; j < n; j++)
++          {
++            s0 += Mi[j] * ef[j];
++          }
++          const float off = (s0 + s1) + (s2 + s3);
++          q += (double) ei * ((double) Mi[i] * ei + 2.0 * (double) off);
++        }
++        sum += q;
++      }
++    }
++  }
++  return (Distortion) std::max(0.0, sum / (double) (1 << shift));
++}
++
++Distortion RdCost::xGetSSEWeighted_WTD(const DistParam &rcDtParam) const
++{
++  const Pel   *piOrg      = rcDtParam.org.buf;
++  const Pel   *piCur      = rcDtParam.cur.buf;
++  const Pel   *piOrgLuma  = rcDtParam.orgLuma.buf;
++  const float *piWeight   = rcDtParam.weights;
++  const ptrdiff_t strideOrg     = rcDtParam.org.stride;
++  const ptrdiff_t strideCur     = rcDtParam.cur.stride;
++  const ptrdiff_t strideOrgLuma = rcDtParam.orgLuma.stride;
++  const ptrdiff_t strideWgt     = rcDtParam.weightStride;
++  const size_t cShift  = rcDtParam.cShiftX;
++  const size_t cShiftY = rcDtParam.cShiftY;
++  const int    cols    = rcDtParam.org.width;
++  int          rows    = rcDtParam.org.height;
++
++  const uint32_t shift = DISTORTION_PRECISION_ADJUSTMENT(rcDtParam.bitDepth) << 1;
++
++  double sum = 0.0;
++  for (; rows != 0; rows--)
++  {
++    for (int n = 0; n < cols; n++)
++    {
++      const int64_t diff   = piOrg[n] - piCur[n];
++      const int64_t lumaWt = m_reshapeLumaLevelToWeightPLUT[piOrgLuma[n << cShift]];
++      sum += (double) (lumaWt * diff * diff) * (double) piWeight[n];
++    }
++    piOrg += strideOrg;
++    piCur += strideCur;
++    piWeight += strideWgt;
++    piOrgLuma += strideOrgLuma << cShiftY;
++  }
++
++  return (Distortion) (sum / (double) (((int64_t) 1) << (MSE_WEIGHT_FRAC_BITS + shift)));
++}
++
++// ====================================================================================================================
+ // Distortion functions
+ // ====================================================================================================================
+ 
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/CommonLib/RdCost.h VTM_WMSE/source/Lib/CommonLib/RdCost.h
+--- VTM_stock/source/Lib/CommonLib/RdCost.h	2025-02-14 06:27:09.128046247 -0800
++++ VTM_WMSE/source/Lib/CommonLib/RdCost.h	2026-08-31 11:48:44.465770164 -0700
+@@ -44,6 +44,7 @@
+ #include "Buffer.h"
+ #include "Slice.h"
+ #include "RdCostWeightPrediction.h"
++#include "WeightMap.h"
+ #include <math.h>
+ #include <functional>
+ 
+@@ -98,6 +99,13 @@
+   int                   subShift;
+   int                   cShiftX;
+   int                   cShiftY;
++
++  // per-pixel importance weights for weighted-MSE RDO (nullptr = plain SSE)
++  const float          *weights;
++  ptrdiff_t             weightStride;
++  int                   blkX;          // absolute position of the block, for block Hessians
++  int                   blkY;
++
+   DistParam() :
+   org(), cur(),
+   mask( nullptr ),
+@@ -106,6 +114,7 @@
+   maskStride2(0),
+   step( 1 ), bitDepth( 0 ), useMR( false ), applyWeight( false ), isBiPred( false ), wpCur( nullptr ), compID( MAX_NUM_COMPONENT ), maximumDistortionForEarlyExit( std::numeric_limits<Distortion>::max() ), subShift( 0 )
+   , cShiftX(-1), cShiftY(-1)
++  , weights(nullptr), weightStride(0), blkX(-1), blkY(-1)
+   { }
+ };
+ 
+@@ -150,6 +159,18 @@
+ 
+   double                  m_dCost; // for ibc
+ 
++  // ---- weighted-MSE RDO -------------------------------------------------------------------
++  const WeightMap        *m_weightMap = nullptr;
++  // origins of the two full-picture sample buffers a distortion "org" pointer can come from,
++  // used to recover the absolute position of a block without touching every call site
++  const Pel              *m_orgOrigin[2][MAX_NUM_COMPONENT] = { { nullptr, nullptr, nullptr },
++                                                                { nullptr, nullptr, nullptr } };
++  ptrdiff_t               m_orgOriginStride[2][MAX_NUM_COMPONENT] = { { 0, 0, 0 }, { 0, 0, 0 } };
++  int                     m_orgOriginWidth[2][MAX_NUM_COMPONENT]  = { { 0, 0, 0 }, { 0, 0, 0 } };
++  int                     m_orgOriginHeight[2][MAX_NUM_COMPONENT] = { { 0, 0, 0 }, { 0, 0, 0 } };
++  mutable uint64_t        m_weightedCalls   = 0;
++  mutable uint64_t        m_unweightedCalls = 0;
++
+   template<bool allowOddSizes> static DFuncDiff sizeOffset(const uint32_t width)
+   {
+     if (width <= 64 && isPowerOf2(width))
+@@ -483,6 +504,44 @@
+ 
+   Distortion getDistPart(const CPelBuf &org, const CPelBuf &cur, const Pel *mask, int bitDepth,
+                          const ComponentID compID, DFunc distFunc);
++
++  // ---- weighted-MSE RDO -------------------------------------------------------------------
++  void                setWeightMap(const WeightMap *m) { m_weightMap = m; }
++  const WeightMap    *getWeightMap() const             { return m_weightMap; }
++  bool                isWeightedRdo() const            { return m_weightMap != nullptr && m_weightMap->isEnabled(); }
++
++  //! register a full-picture sample buffer so that block positions can be recovered from pointers
++  void setOrgOrigin(int slot, const ComponentID compID, const Pel *origin, ptrdiff_t stride, int width, int height)
++  {
++    m_orgOrigin[slot][compID]       = origin;
++    m_orgOriginStride[slot][compID] = stride;
++    m_orgOriginWidth[slot][compID]  = width;
++    m_orgOriginHeight[slot][compID] = height;
++  }
++  void clearOrgOrigins()
++  {
++    for (int s = 0; s < 2; s++)
++    {
++      for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++      {
++        m_orgOrigin[s][c] = nullptr;
++      }
++    }
++  }
++
++  bool resolveOrgPos(const ComponentID compID, const Pel *p, ptrdiff_t stride, int &x, int &y) const;
++  bool attachWeights(DistParam &dp, const CPelBuf &org, const ComponentID compID) const;
++
++  void     getWeightedRdoStats(uint64_t &weighted, uint64_t &unweighted) const
++  {
++    weighted   = m_weightedCalls;
++    unweighted = m_unweightedCalls;
++  }
++  void resetWeightedRdoStats() { m_weightedCalls = m_unweightedCalls = 0; }
++
++  static Distortion xGetSSEWeighted(const DistParam &rcDtParam);
++  Distortion        xGetSSEBlockHessian(const DistParam &rcDtParam) const;
++  Distortion        xGetSSEWeighted_WTD(const DistParam &rcDtParam) const;
+ };// END CLASS DEFINITION RdCost
+ 
+ //! \}
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/CommonLib/TrQuant.cpp VTM_WMSE/source/Lib/CommonLib/TrQuant.cpp
+--- VTM_stock/source/Lib/CommonLib/TrQuant.cpp	2026-06-27 16:05:08.091850494 -0700
++++ VTM_WMSE/source/Lib/CommonLib/TrQuant.cpp	2025-02-04 07:23:23.000000000 -0800
+@@ -524,23 +524,6 @@
+         }
+       }
+ 
+-      {  // dump the LFNST INPUT region (pre-LFNST DCT-2 coeffs) for compaction analysis (env LFNST_INDUMP)
+-        const char *_inPath = getenv("LFNST_INDUMP");
+-        if (_inPath)
+-        {
+-          static FILE *_inFile = fopen(_inPath, "wb");
+-          if (_inFile)
+-          {
+-            const int _n = (sbSize == 4) ? 16 : 48;
+-            int32_t _h[4] = { int32_t(width), int32_t(intraMode), int32_t(lfnstIdx), int32_t(compID) };
+-            int32_t _reg[48] = { 0 };
+-            for (int _i = 0; _i < _n; _i++) _reg[_i] = int32_t(m_tempInMatrix[_i]);
+-            fwrite(_h, sizeof(int32_t), 4, _inFile);
+-            fwrite(_reg, sizeof(int32_t), 48, _inFile);
+-            fflush(_inFile);
+-          }
+-        }
+-      }
+       fwdLfnstNxN(m_tempInMatrix, m_tempOutMatrix, g_lfnstLut[intraMode], lfnstIdx - 1, sbSize,
+                   (tu4x4Flag || tu8x8Flag) ? 8 : 16);
+ 
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/CommonLib/TypeDef.h VTM_WMSE/source/Lib/CommonLib/TypeDef.h
+--- VTM_stock/source/Lib/CommonLib/TypeDef.h	2025-02-18 14:49:14.108677587 -0800
++++ VTM_WMSE/source/Lib/CommonLib/TypeDef.h	2025-02-04 07:23:23.000000000 -0800
+@@ -132,7 +132,7 @@
+ #define WCG_EXT                                           1
+ #define WCG_WPSNR                                         WCG_EXT
+ 
+-#define KEEP_PRED_AND_RESI_SIGNALS                        1 
++#define KEEP_PRED_AND_RESI_SIGNALS                        0
+ 
+ #ifndef GREEN_METADATA_SEI_ENABLED
+ #define GREEN_METADATA_SEI_ENABLED 0 //JVET-AB0072: Analyser for the Green Metadata SEI
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/CommonLib/WeightMap.cpp VTM_WMSE/source/Lib/CommonLib/WeightMap.cpp
+--- VTM_stock/source/Lib/CommonLib/WeightMap.cpp	1969-12-31 16:00:00.000000000 -0800
++++ VTM_WMSE/source/Lib/CommonLib/WeightMap.cpp	2026-09-03 13:12:28.541549218 -0700
+@@ -0,0 +1,541 @@
++/** \file     WeightMap.cpp
++    \brief    per-pixel importance weights for weighted-MSE RDO
++*/
++
++#include "WeightMap.h"
++
++#include <cmath>
++#include <cstdio>
++#include <fstream>
++#include <numeric>
++
++void WeightMap::clear()
++{
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    std::vector<float>().swap(m_planes[c].w);
++    m_planes[c].width = m_planes[c].height = 0;
++    m_planes[c].stride                     = 0;
++  }
++  m_enabled = false;
++  m_frame   = -1;
++}
++
++bool WeightMap::init(int lumaWidth, int lumaHeight, ChromaFormat chromaFormat, const std::string &fileName,
++                     int frameIndex, double tau, bool globalNorm)
++{
++  clear();
++
++  m_tau        = tau;
++  m_frame      = frameIndex;
++  m_globalNorm = globalNorm;
++
++  m_planes[COMPONENT_Y].width  = lumaWidth;
++  m_planes[COMPONENT_Y].height = lumaHeight;
++  m_planes[COMPONENT_Y].stride = lumaWidth;
++  m_planes[COMPONENT_Y].w.assign((size_t) lumaWidth * (size_t) lumaHeight, 1.0f);
++
++  const int csx = getChannelTypeScaleX(ChannelType::CHROMA, chromaFormat);
++  const int csy = getChannelTypeScaleY(ChannelType::CHROMA, chromaFormat);
++
++  for (int c = COMPONENT_Cb; c <= COMPONENT_Cr; c++)
++  {
++    if (chromaFormat == ChromaFormat::_400)
++    {
++      m_planes[c].width = m_planes[c].height = 0;
++      m_planes[c].stride                     = 0;
++      continue;
++    }
++    m_planes[c].width  = (lumaWidth + (1 << csx) - 1) >> csx;
++    m_planes[c].height = (lumaHeight + (1 << csy) - 1) >> csy;
++    m_planes[c].stride = m_planes[c].width;
++    m_planes[c].w.assign((size_t) m_planes[c].width * (size_t) m_planes[c].height, 1.0f);
++  }
++
++  m_enabled = true;
++
++  if (!fileName.empty() && !loadFromFile(fileName, frameIndex))
++  {
++    clear();
++    return false;
++  }
++
++  applyTau();
++
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    if (m_planes[c].w.empty())
++    {
++      continue;
++    }
++    const double mean =
++      std::accumulate(m_planes[c].w.begin(), m_planes[c].w.end(), 0.0) / (double) m_planes[c].w.size();
++    double lo = m_planes[c].w[0];
++    double hi = m_planes[c].w[0];
++    for (const float v: m_planes[c].w)
++    {
++      lo = std::min(lo, (double) v);
++      hi = std::max(hi, (double) v);
++    }
++    printf("WeightMap: comp %d  %dx%d  min %.4f  max %.4f  mean %.4f\n", c, m_planes[c].width, m_planes[c].height, lo,
++           hi, mean);
++  }
++
++  return true;
++}
++
++bool WeightMap::loadFromFile(const std::string &fileName, int frameIndex)
++{
++  std::ifstream f(fileName, std::ios::binary);
++  if (!f)
++  {
++    printf("WeightMap: cannot open weights file '%s'\n", fileName.c_str());
++    return false;
++  }
++
++  uint32_t numFrames = 0;
++  if (!f.read(reinterpret_cast<char *>(&numFrames), sizeof(uint32_t)))
++  {
++    printf("WeightMap: cannot read the frame count from '%s'\n", fileName.c_str());
++    return false;
++  }
++  if (frameIndex < 0 || (uint32_t) frameIndex >= numFrames)
++  {
++    printf("WeightMap: frame %d requested, file '%s' holds %u frames\n", frameIndex, fileName.c_str(), numFrames);
++    return false;
++  }
++
++  size_t frameSize = 0;
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    frameSize += (size_t) m_planes[c].width * (size_t) m_planes[c].height * sizeof(float);
++  }
++
++  f.seekg((std::streamoff) sizeof(uint32_t) + (std::streamoff) frameIndex * (std::streamoff) frameSize, std::ios::beg);
++  if (!f)
++  {
++    printf("WeightMap: cannot seek to frame %d in '%s'\n", frameIndex, fileName.c_str());
++    return false;
++  }
++
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    if (m_planes[c].w.empty())
++    {
++      continue;
++    }
++    if (!f.read(reinterpret_cast<char *>(m_planes[c].w.data()), (std::streamsize) (m_planes[c].w.size() * sizeof(float))))
++    {
++      printf("WeightMap: truncated weights for component %d in '%s'\n", c, fileName.c_str());
++      return false;
++    }
++    for (float &v: m_planes[c].w)
++    {
++      if (!std::isfinite(v) || v < 0.0f)
++      {
++        printf("WeightMap: component %d holds a negative or non-finite weight (%f)\n", c, v);
++        return false;
++      }
++    }
++  }
++
++  return true;
++}
++
++void WeightMap::applyTau()
++{
++  // w <- (w + tau * refMean) / ((1 + tau) * refMean).  tau = 0 keeps the raw importance map,
++  // tau -> inf falls back to plain SSE, and the result has mean one so lambda keeps its usual
++  // calibration.
++  //
++  // refMean is per plane by default, which normalises every plane to mean one and therefore
++  // leaves VTM's tuned luma/chroma lambda balance untouched -- but it also throws away whatever
++  // cross-plane balance the metric's Hessian carried.  With globalNorm one common mean is used
++  // instead, so the ratios between planes survive.
++  double gmean = 1.0;
++  if (m_globalNorm)
++  {
++    double sum = 0.0;
++    size_t cnt = 0;
++    for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++    {
++      sum += std::accumulate(m_planes[c].w.begin(), m_planes[c].w.end(), 0.0);
++      cnt += m_planes[c].w.size();
++    }
++    gmean = cnt ? sum / (double) cnt : 1.0;
++    if (!(gmean > 0.0))
++    {
++      gmean = 1.0;
++    }
++  }
++
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    if (m_planes[c].w.empty())
++    {
++      continue;
++    }
++
++    double mean = gmean;
++    if (!m_globalNorm)
++    {
++      mean = std::accumulate(m_planes[c].w.begin(), m_planes[c].w.end(), 0.0) / (double) m_planes[c].w.size();
++      if (!(mean > 0.0))
++      {
++        mean = 1.0;
++      }
++    }
++
++    const double scale = 1.0 / (mean * (1.0 + m_tau));
++    for (float &v: m_planes[c].w)
++    {
++      v = (float) (((double) v + m_tau * mean) * scale);
++    }
++  }
++}
++
++bool WeightMap::loadBlockFile(const std::string &fileName)
++{
++  std::ifstream f(fileName, std::ios::binary);
++  if (!f)
++  {
++    printf("WeightMap: cannot open block-Hessian file '%s'\n", fileName.c_str());
++    return false;
++  }
++  uint32_t magic = 0, blk = 0;
++  f.read(reinterpret_cast<char *>(&magic), 4);
++  f.read(reinterpret_cast<char *>(&blk), 4);
++  if (magic == 0x4B484232u || magic == 0x4B484233u)
++  {
++    return loadFactorFile(f, blk, magic == 0x4B484233u);
++  }
++  if (magic != 0x31484257u || blk == 0 || blk > 32)
++  {
++    printf("WeightMap: '%s' is not a block-Hessian file (magic %08x blk %u)\n", fileName.c_str(), magic, blk);
++    return false;
++  }
++  m_blkSize = (int) blk;
++  const size_t n = (size_t) blk * blk;
++
++  double sumDiag[MAX_NUM_COMPONENT] = { 0.0, 0.0, 0.0 };
++  size_t cntDiag[MAX_NUM_COMPONENT]  = { 0, 0, 0 };
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    uint32_t nby = 0, nbx = 0;
++    f.read(reinterpret_cast<char *>(&nby), 4);
++    f.read(reinterpret_cast<char *>(&nbx), 4);
++    m_nby[c] = (int) nby;
++    m_nbx[c] = (int) nbx;
++    const size_t cnt = (size_t) nby * nbx * n * n;
++    m_blk[c].resize(cnt);
++    if (cnt && !f.read(reinterpret_cast<char *>(m_blk[c].data()), (std::streamsize) (cnt * sizeof(float))))
++    {
++      printf("WeightMap: truncated block data for component %d\n", c);
++      return false;
++    }
++    for (size_t b = 0; b < (size_t) nby * nbx; b++)
++    {
++      const float *M = &m_blk[c][b * n * n];
++      for (size_t i = 0; i < n; i++)
++      {
++        sumDiag[c] += M[i * n + i];
++        cntDiag[c]++;
++      }
++    }
++  }
++  double gsum = 0.0;
++  size_t gcnt = 0;
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    gsum += sumDiag[c];
++    gcnt += cntDiag[c];
++  }
++  if (!gcnt || !(gsum > 0.0))
++  {
++    printf("WeightMap: degenerate block-Hessian file\n");
++    return false;
++  }
++
++  // Same convention as the diagonal path: mean of diag(H) is one, then shrink towards the
++  // identity by tau so lambda keeps its calibration and the form stays PSD.
++  //
++  // Per plane by default.  Normalising all planes against one global mean is wrong whenever a
++  // plane is inactive: a luma-only metric ships identity blocks for chroma, whose diagonal of 1
++  // then dwarfs a luma Hessian of order 1e-9, the global mean collapses to the chroma value and
++  // luma distortion is scaled to nothing.
++  const double gmean = gsum / (double) gcnt;
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    if (m_blk[c].empty() || cntDiag[c] == 0)
++    {
++      continue;
++    }
++    const double mean  = m_globalNorm ? gmean : (sumDiag[c] / (double) cntDiag[c]);
++    if (!(mean > 0.0))
++    {
++      continue;
++    }
++    const double scale = 1.0 / (mean * (1.0 + m_tau));
++    const double add   = m_tau * mean;
++    bool         diagOnly = true;   // every tile of this plane has all off-diagonals exactly zero
++    for (size_t b = 0; b * n * n < m_blk[c].size(); b++)
++    {
++      float *M = &m_blk[c][b * n * n];
++      for (size_t i = 0; i < n * n; i++)
++      {
++        M[i] = (float) (M[i] * scale);
++      }
++      for (size_t i = 0; i < n; i++)
++      {
++        M[i * n + i] += (float) (add * scale);
++      }
++      // symmetrise once, so the kernel can use the upper triangle exactly
++      for (size_t i = 0; i < n; i++)
++      {
++        for (size_t j = i + 1; j < n; j++)
++        {
++          const float v = 0.5f * (M[i * n + j] + M[j * n + i]);
++          M[i * n + j] = v;
++          M[j * n + i] = v;
++          if (v != 0.f)
++          {
++            diagOnly = false;
++          }
++        }
++      }
++    }
++    // identity / diagonal planes (chroma of a luma-only metric) take the O(n) path in the
++    // kernel; with zero off-diagonals it evaluates to the same double as the dense kernel
++    m_blkDiagOnly[c] = diagOnly;
++    if (diagOnly)
++    {
++      printf("WeightMap: comp %d block tiles are diagonal -> O(n) kernel path\n", c);
++    }
++  }
++
++  // keep the per-sample diagonal consistent with the block form: everything else that reads
++  // the map (the RDOQ lambda scaling via getMeanWeight, the reporting) then agrees with the
++  // distortion actually being minimised, and no separate .dat is needed.
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    if (m_planes[c].w.empty() || m_nbx[c] == 0)
++    {
++      continue;
++    }
++    for (int by = 0; by < m_nby[c]; by++)
++    {
++      for (int bx = 0; bx < m_nbx[c]; bx++)
++      {
++        const float *M = &m_blk[c][((size_t) by * m_nbx[c] + bx) * n * n];
++        for (int r = 0; r < m_blkSize; r++)
++        {
++          const int y = by * m_blkSize + r;
++          if (y >= m_planes[c].height)
++          {
++            continue;
++          }
++          for (int col = 0; col < m_blkSize; col++)
++          {
++            const int x = bx * m_blkSize + col;
++            if (x >= m_planes[c].width)
++            {
++              continue;
++            }
++            const size_t i = (size_t) r * m_blkSize + col;
++            m_planes[c].w[(size_t) y * m_planes[c].stride + x] = M[i * n + i];
++          }
++        }
++      }
++    }
++  }
++
++  m_hasBlocks = true;
++  printf("WeightMap: block Hessians %dx%d, per-plane mean diag %.3e / %.3e / %.3e -> normalised, tau %.3f\n",
++         m_blkSize, m_blkSize,
++         cntDiag[0] ? sumDiag[0] / (double) cntDiag[0] : 0.0,
++         cntDiag[1] ? sumDiag[1] / (double) cntDiag[1] : 0.0,
++         cntDiag[2] ? sumDiag[2] / (double) cntDiag[2] : 0.0, m_tau);
++  return true;
++}
++
++double WeightMap::getMeanWeight(const ComponentID compId, const int x, const int y, const int width,
++                                const int height) const
++{
++  const Plane &p = m_planes[compId];
++  if (!m_enabled || p.w.empty())
++  {
++    return 1.0;
++  }
++
++  const int x0 = std::max(0, x);
++  const int y0 = std::max(0, y);
++  const int x1 = std::min(p.width, x + width);
++  const int y1 = std::min(p.height, y + height);
++  if (x1 <= x0 || y1 <= y0)
++  {
++    return 1.0;
++  }
++
++  double sum = 0.0;
++  for (int j = y0; j < y1; j++)
++  {
++    const float *row = &p.w[(size_t) j * (size_t) p.stride];
++    for (int i = x0; i < x1; i++)
++    {
++      sum += row[i];
++    }
++  }
++  return sum / (double) ((x1 - x0) * (y1 - y0));
++}
++
++bool WeightMap::loadFactorFile(std::ifstream &f, uint32_t blk, bool withDiag)
++{
++  m_hasFacDiag = withDiag;
++  uint32_t K = 0;
++  f.read(reinterpret_cast<char *>(&K), 4);
++  if (blk == 0 || blk > 32 || K == 0 || K > blk * blk)
++  {
++    printf("WeightMap: bad factored tile header (blk %u K %u)\n", blk, K);
++    return false;
++  }
++  m_blkSize = (int) blk;
++  m_K       = (int) K;
++  const size_t n = (size_t) blk * blk;
++  double sumDiag[MAX_NUM_COMPONENT] = { 0.0, 0.0, 0.0 };
++  size_t cntDiag[MAX_NUM_COMPONENT] = { 0, 0, 0 };
++  std::vector<float> tmp;
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    uint32_t nby = 0, nbx = 0;
++    f.read(reinterpret_cast<char *>(&nby), 4);
++    f.read(reinterpret_cast<char *>(&nbx), 4);
++    m_nby[c] = (int) nby;
++    m_nbx[c] = (int) nbx;
++    const size_t cnt = (size_t) nby * nbx * n * K;
++    tmp.resize(cnt);
++    if (cnt && !f.read(reinterpret_cast<char *>(tmp.data()), (std::streamsize) (cnt * sizeof(float))))
++    {
++      printf("WeightMap: truncated factor data for component %d\n", c);
++      return false;
++    }
++    // file is tile-major, [n][K]; store [K][n] per tile for contiguous dot products
++    m_fac[c].resize(cnt);
++    for (size_t b = 0; b < (size_t) nby * nbx; b++)
++    {
++      const float *src = &tmp[b * n * K];
++      float       *dst = &m_fac[c][b * n * K];
++      for (size_t i = 0; i < n; i++)
++      {
++        double d = 0.0;
++        for (size_t k = 0; k < K; k++)
++        {
++          const float v = src[i * K + k];
++          dst[k * n + i] = v;
++          d += (double) v * v;
++        }
++        sumDiag[c] += d;
++        cntDiag[c]++;
++      }
++    }
++    if (withDiag)
++    {
++      const size_t cd = (size_t) nby * nbx * n;
++      m_facDiag[c].resize(cd);
++      if (cd && !f.read(reinterpret_cast<char *>(m_facDiag[c].data()), (std::streamsize) (cd * sizeof(float))))
++      {
++        printf("WeightMap: truncated residual-diagonal data for component %d\n", c);
++        return false;
++      }
++      for (size_t i = 0; i < cd; i++)
++      {
++        sumDiag[c] += m_facDiag[c][i];
++      }
++    }
++  }
++  double gsum = 0.0;
++  size_t gcnt = 0;
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    gsum += sumDiag[c];
++    gcnt += cntDiag[c];
++  }
++  if (!gcnt || !(gsum > 0.0))
++  {
++    printf("WeightMap: degenerate factored tile file\n");
++    return false;
++  }
++  // Same convention as the dense path: mean of diag(H) is one per plane, then shrink to the
++  // identity by tau.  The tau term is not low rank, so it is carried as facAdd * ||e||^2.
++  const double gmean = gsum / (double) gcnt;
++  m_facAdd = (float) (m_tau / (1.0 + m_tau));
++  double meanUsed[MAX_NUM_COMPONENT] = { 0.0, 0.0, 0.0 };
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    if (m_fac[c].empty() || cntDiag[c] == 0)
++    {
++      continue;
++    }
++    const double mean = m_globalNorm ? gmean : (sumDiag[c] / (double) cntDiag[c]);
++    meanUsed[c] = mean;
++    if (!(mean > 0.0))
++    {
++      continue;
++    }
++    const float s = (float) std::sqrt(1.0 / (mean * (1.0 + m_tau)));
++    for (size_t i = 0; i < m_fac[c].size(); i++)
++    {
++      m_fac[c][i] *= s;
++    }
++    for (size_t i = 0; i < m_facDiag[c].size(); i++)
++    {
++      m_facDiag[c][i] *= s * s;
++    }
++  }
++  // per-sample diagonal, so getMeanWeight / weighted RDOQ see the same map
++  for (int c = 0; c < MAX_NUM_COMPONENT; c++)
++  {
++    if (m_planes[c].w.empty() || m_nbx[c] == 0)
++    {
++      continue;
++    }
++    for (int by = 0; by < m_nby[c]; by++)
++    {
++      for (int bx = 0; bx < m_nbx[c]; bx++)
++      {
++        const float *F = &m_fac[c][((size_t) by * m_nbx[c] + bx) * n * K];
++        for (int r = 0; r < m_blkSize; r++)
++        {
++          const int y = by * m_blkSize + r;
++          if (y >= m_planes[c].height)
++          {
++            continue;
++          }
++          for (int col = 0; col < m_blkSize; col++)
++          {
++            const int x = bx * m_blkSize + col;
++            if (x >= m_planes[c].width)
++            {
++              continue;
++            }
++            const size_t i = (size_t) r * m_blkSize + col;
++            double d = m_facAdd;
++            for (size_t k = 0; k < K; k++)
++            {
++              d += (double) F[k * n + i] * F[k * n + i];
++            }
++            if (withDiag)
++            {
++              d += m_facDiag[c][((size_t) by * m_nbx[c] + bx) * n + i];
++            }
++            m_planes[c].w[(size_t) y * m_planes[c].stride + x] = (float) d;
++          }
++        }
++      }
++    }
++  }
++  m_hasBlocks  = true;
++  m_hasFactors = true;
++  printf("WeightMap: rank-%u factored tiles%s %dx%d, per-plane mean diag %.3e / %.3e / %.3e -> normalised, tau %.3f\n",
++         K, withDiag ? " + residual diagonal" : "", m_blkSize, m_blkSize, meanUsed[0], meanUsed[1], meanUsed[2], m_tau);
++  return true;
++}
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/CommonLib/WeightMap.h VTM_WMSE/source/Lib/CommonLib/WeightMap.h
+--- VTM_stock/source/Lib/CommonLib/WeightMap.h	1969-12-31 16:00:00.000000000 -0800
++++ VTM_WMSE/source/Lib/CommonLib/WeightMap.h	2026-09-03 13:12:50.727446493 -0700
+@@ -0,0 +1,149 @@
++/** \file     WeightMap.h
++    \brief    per-pixel importance weights for weighted-MSE RDO (header)
++
++    The weights are the diagonal of the Hessian of a perceptual metric, evaluated
++    at the source picture.  Feeding them to the encoder turns the RD objective
++    J = SSE + lambda * R into J = sum_i w_i (x_i - xhat_i)^2 + lambda * R, which is
++    a second-order approximation of  metric(x, xhat) + lambda * R.
++
++    File format (little endian, matches the .dat produced by the python side):
++      uint32                          numFrames
++      repeated numFrames times:
++        float32 [ lumaW * lumaH ]     Y plane, raster scan
++        float32 [ chromaW * chromaH ] Cb plane, raster scan
++        float32 [ chromaW * chromaH ] Cr plane, raster scan
++*/
++
++#ifndef __WEIGHTMAP__
++#define __WEIGHTMAP__
++
++#include "CommonDef.h"
++#include "ChromaFormat.h"
++
++#include <string>
++#include <vector>
++#include <fstream>
++
++//! \ingroup CommonLib
++//! \{
++
++class WeightMap
++{
++private:
++  struct Plane
++  {
++    std::vector<float> w;
++    int                width  = 0;
++    int                height = 0;
++    ptrdiff_t          stride = 0;
++  };
++
++  Plane m_planes[MAX_NUM_COMPONENT];
++
++  bool   m_enabled = false;
++  double m_tau        = 0.0;   // shrink-to-uniform regularisation: w <- (w + tau) / (1 + tau)
++  bool   m_globalNorm = false; // normalise all planes together instead of one mean per plane
++
++  // optional non-diagonal form: one blk x blk Hessian per blk x blk tile, row-major inside a
++  // tile.  H = 2 J^T J for LPIPS, so these come from the same probes as the diagonal.
++  bool               m_hasBlocks = false;
++  int                m_blkSize   = 0;
++  std::vector<float> m_blk[MAX_NUM_COMPONENT];
++  int                m_nbx[MAX_NUM_COMPONENT] = { 0, 0, 0 };
++  int                m_nby[MAX_NUM_COMPONENT] = { 0, 0, 0 };
++  // set at load when every tile of the plane has all off-diagonals exactly zero (identity
++  // chroma of a luma-only metric): the kernel then takes an O(n) path, bit-identical
++  bool               m_blkDiagOnly[MAX_NUM_COMPONENT] = { false, false, false };
++  // Rank-K factored tiles: H_t = F_t F_t^T + facAdd * I after the tau shrink, F_t stored
++  // k-major (K rows of n) so the kernel does K contiguous dot products instead of an n x n
++  // matvec.  Storage n*K per tile instead of n*n.
++  bool               m_hasFactors = false;
++  int                m_K          = 0;
++  float              m_facAdd     = 0.0f;
++  std::vector<float> m_fac[MAX_NUM_COMPONENT];
++  bool               m_hasFacDiag = false;      // v3: residual diagonal alongside the factors
++  std::vector<float> m_facDiag[MAX_NUM_COMPONENT];
++  int    m_frame   = -1;
++
++public:
++  WeightMap()  = default;
++  ~WeightMap() = default;
++
++  //! allocate the planes (all weights = 1.0) and, if fileName is not empty, load them
++  bool init(int lumaWidth, int lumaHeight, ChromaFormat chromaFormat, const std::string &fileName, int frameIndex,
++            double tau, bool globalNorm = false);
++
++  void clear();
++
++  bool isEnabled() const { return m_enabled; }
++
++  int       getWidth (const ComponentID compId) const { return m_planes[compId].width;  }
++  int       getHeight(const ComponentID compId) const { return m_planes[compId].height; }
++  ptrdiff_t getStride(const ComponentID compId) const { return m_planes[compId].stride; }
++
++  //! pointer to the weight of sample (x, y) of component compId, or nullptr if out of range
++  const float *getPtr(const ComponentID compId, const int x, const int y) const
++  {
++    const Plane &p = m_planes[compId];
++    if (!m_enabled || p.w.empty() || x < 0 || y < 0 || x >= p.width || y >= p.height)
++    {
++      return nullptr;
++    }
++    return &p.w[(size_t) y * (size_t) p.stride + (size_t) x];
++  }
++
++  //! mean weight of a rectangle, used to scale the RDOQ / transform-domain lambda
++  double getMeanWeight(const ComponentID compId, const int x, const int y, const int width, const int height) const;
++
++  double getTau() const { return m_tau; }
++
++  bool hasBlocks()   const { return m_hasBlocks; }
++  int  getBlkSize()  const { return m_blkSize; }
++  int  getNumBlkX(const ComponentID c) const { return m_nbx[c]; }
++  int  getNumBlkY(const ComponentID c) const { return m_nby[c]; }
++  bool blockPlaneIsDiagonal(const ComponentID c) const { return m_hasBlocks && m_blkDiagOnly[c]; }
++
++  //! the blk*blk x blk*blk Hessian of the tile containing sample (x, y), or nullptr
++  const float *getBlockMatrix(const ComponentID compId, const int bx, const int by) const
++  {
++    if (!m_hasBlocks || bx < 0 || by < 0 || bx >= m_nbx[compId] || by >= m_nby[compId])
++    {
++      return nullptr;
++    }
++    const size_t n = (size_t) m_blkSize * m_blkSize;
++    return &m_blk[compId][((size_t) by * m_nbx[compId] + bx) * n * n];
++  }
++
++  bool loadBlockFile(const std::string &fileName);
++  bool loadFactorFile(std::ifstream &f, uint32_t blk, bool withDiag);
++  bool hasFacDiag() const { return m_hasFacDiag; }
++  const float *getBlockFacDiag(const ComponentID compId, const int bx, const int by) const
++  {
++    if (!m_hasFacDiag || bx < 0 || by < 0 || bx >= m_nbx[compId] || by >= m_nby[compId])
++    {
++      return nullptr;
++    }
++    const size_t n = (size_t) m_blkSize * m_blkSize;
++    return &m_facDiag[compId][((size_t) by * m_nbx[compId] + bx) * n];
++  }
++  bool  hasFactors() const { return m_hasFactors; }
++  int   getK()       const { return m_K; }
++  float getFacAdd()  const { return m_facAdd; }
++  const float *getBlockFactor(const ComponentID compId, const int bx, const int by) const
++  {
++    if (!m_hasFactors || bx < 0 || by < 0 || bx >= m_nbx[compId] || by >= m_nby[compId])
++    {
++      return nullptr;
++    }
++    const size_t n = (size_t) m_blkSize * m_blkSize;
++    return &m_fac[compId][((size_t) by * m_nbx[compId] + bx) * n * (size_t) m_K];
++  }
++
++private:
++  bool loadFromFile(const std::string &fileName, int frameIndex);
++  void applyTau();
++};
++
++//! \}
++
++#endif   // __WEIGHTMAP__
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/EncoderLib/EncCfg.h VTM_WMSE/source/Lib/EncoderLib/EncCfg.h
+--- VTM_stock/source/Lib/EncoderLib/EncCfg.h	2025-02-14 06:27:09.144046173 -0800
++++ VTM_WMSE/source/Lib/EncoderLib/EncCfg.h	2026-08-31 11:49:00.930705167 -0700
+@@ -405,6 +405,14 @@
+   unsigned  m_virtualBoundariesPosX[3];
+   unsigned  m_virtualBoundariesPosY[3];
+   bool      m_lmcsEnabled;
++
++  // weighted-MSE RDO: J = sum_i w_i (x_i - xhat_i)^2 + lambda R
++  bool        m_weightedRdo    = false;
++  std::string m_weightsFile;
++  double      m_weightedRdoTau = 0.0;
++  bool        m_weightedRdoq   = false;
++  bool        m_weightedRdoGlobalNorm = false;
++  std::string m_weightedRdoBlockFile;
+   unsigned  m_reshapeSignalType;
+   unsigned  m_intraCMD;
+   ReshapeCW m_reshapeCW;
+@@ -1669,6 +1677,19 @@
+   bool      getUseISP                       ()         const { return m_ISP; }
+   void      setLmcs                         ( bool b )                   { m_lmcsEnabled = b; }
+   bool      getLmcs                         () const                     { return m_lmcsEnabled; }
++
++  void        setWeightedRdo   (bool b)                     { m_weightedRdo = b; }
++  bool        getWeightedRdo   () const                     { return m_weightedRdo; }
++  void        setWeightsFile   (const std::string &f)       { m_weightsFile = f; }
++  const std::string &getWeightsFile() const                 { return m_weightsFile; }
++  void        setWeightedRdoTau(double t)                   { m_weightedRdoTau = t; }
++  double      getWeightedRdoTau() const                     { return m_weightedRdoTau; }
++  void        setWeightedRdoq  (bool b)                     { m_weightedRdoq = b; }
++  void        setWeightedRdoGlobalNorm(bool b)              { m_weightedRdoGlobalNorm = b; }
++  bool        getWeightedRdoGlobalNorm() const              { return m_weightedRdoGlobalNorm; }
++  void        setWeightedRdoBlockFile(const std::string &f) { m_weightedRdoBlockFile = f; }
++  const std::string &getWeightedRdoBlockFile() const        { return m_weightedRdoBlockFile; }
++  bool        getWeightedRdoq  () const                     { return m_weightedRdoq; }
+   void      setReshapeSignalType            ( uint32_t signalType )      { m_reshapeSignalType = signalType; }
+   uint32_t  getReshapeSignalType            () const                     { return m_reshapeSignalType; }
+   void      setReshapeIntraCMD              (uint32_t intraCMD)          { m_intraCMD = intraCMD; }
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/EncoderLib/EncCu.cpp VTM_WMSE/source/Lib/EncoderLib/EncCu.cpp
+--- VTM_stock/source/Lib/EncoderLib/EncCu.cpp	2026-06-26 15:41:32.712658812 -0700
++++ VTM_WMSE/source/Lib/EncoderLib/EncCu.cpp	2025-02-04 07:23:23.000000000 -0800
+@@ -35,8 +35,6 @@
+     \brief    Coding Unit (CU) encoder class
+ */
+ 
+-#include <fstream>
+-#include <algorithm> // for std::max
+ #include "EncCu.h"
+ 
+ #include "EncLib.h"
+@@ -286,7 +284,7 @@
+     currQP[ChannelType::LUMA];
+   tempCS->prevQP[ChannelType::LUMA] = bestCS->prevQP[ChannelType::LUMA] = prevQP[ChannelType::LUMA];
+ 
+-  xCompressCU(tempCS, bestCS, partitioner, MAX_DOUBLE, true);
++  xCompressCU(tempCS, bestCS, partitioner);
+   cs.slice->m_mapPltCost[0].clear();
+   cs.slice->m_mapPltCost[1].clear();
+   // all signals were already copied during compression if the CTU was split - at this point only the structures are copied to the top level CS
+@@ -479,7 +477,7 @@
+   return bestCSUpdated;
+ }
+ 
+-void EncCu::xCompressCU( CodingStructure*& tempCS, CodingStructure*& bestCS, Partitioner& partitioner, double maxCostAllowed, bool dump)
++void EncCu::xCompressCU( CodingStructure*& tempCS, CodingStructure*& bestCS, Partitioner& partitioner, double maxCostAllowed )
+ {
+   CHECK(maxCostAllowed < 0, "Wrong value of maxCostAllowed!");
+ 
+@@ -992,9 +990,6 @@
+   }
+   bestCS->picture->getPredBuf(currCsArea).copyFrom(bestCS->getPredBuf(currCsArea));
+   bestCS->picture->getRecoBuf( currCsArea ).copyFrom( bestCS->getRecoBuf( currCsArea ) );
+-  // Obtain reconstruction luma buffer from bestCS and extract Y component.
+-  const CPelBuf predBuf = bestCS->picture->getPredBuf(currCsArea).Y();
+-
+   m_modeCtrl->finishCULevel( partitioner );
+   if( m_pcIntraSearch->getSaveCuCostInSCIPU() && bestCS->cus.size() == 1 )
+   {
+@@ -1037,91 +1032,9 @@
+   cu.cs->prevPLT = bestCS->prevPLT;
+   // Assert if Best prediction mode is NONE
+   // Selected mode's RD-cost must be not MAX_DOUBLE.
+-  if (false){   // residual dump disabled for the RD harness (avoids residuals/ bloat)
+-    saveAllCuInfo(bestCS, currCsArea, predBuf);
+-  }
+   CHECK( bestCS->cus.empty()                                   , "No possible encoding found" );
+   CHECK( bestCS->cus[0]->predMode == NUMBER_OF_PREDICTION_MODES, "No possible encoding found" );
+   CHECK( bestCS->cost             == MAX_DOUBLE                , "No possible encoding found" );
+- 
+-}
+-
+-void EncCu::saveAllCuInfo(const CodingStructure* bestCS, const UnitArea currCsArea, const CPelBuf predBuf)
+-{
+-  // Get the global residual buffer for luma.
+-
+-  const CPelBuf origBuf = bestCS->picture->getOrigBuf(currCsArea).Y();
+-
+-  // get origin (x, y) for bestCS
+-  int og_x = currCsArea.lx();
+-  int og_y = currCsArea.ly();
+-
+-  for (size_t i = 0; i < bestCS->cus.size(); i++)
+-  {
+-    const CodingUnit* cu = bestCS->cus[i];
+-    // Construct a unique file name.
+-    std::string filename = "residuals/residual_cu_info_" +
+-                           std::to_string(cu->Y().x) + "_" + std::to_string(cu->Y().y) + 
+-                           "_" + std::to_string(cu->Y().height) + "_" + std::to_string(cu->Y().width) + ".bin";
+-    std::ofstream ofs(filename, std::ios::binary);
+-    if (!ofs)
+-    {
+-      THROW("Failed to open file: " << filename);
+-    }
+-
+-    // open tmp.dat file and dump resiBuf.buf
+-
+-
+-    // Save CU geometry.
+-    int posX   = cu->Y().x;
+-    int posY   = cu->Y().y;
+-    int width  = cu->Y().width;
+-    int height = cu->Y().height;
+-    ofs.write(reinterpret_cast<const char*>(&posX),   sizeof(posX));
+-    ofs.write(reinterpret_cast<const char*>(&posY),   sizeof(posY));
+-    ofs.write(reinterpret_cast<const char*>(&width),  sizeof(width));
+-    ofs.write(reinterpret_cast<const char*>(&height), sizeof(height));
+-
+-    // Save the overall prediction mode.
+-    int predMode = static_cast<int>(cu->predMode);
+-    ofs.write(reinterpret_cast<const char*>(&predMode), sizeof(predMode));
+-
+-    // Save intra prediction mode if CU is intra-coded.
+-    int intraMode = -1;
+-    if (cu->predMode == MODE_INTRA)
+-    {
+-      // Assume that each CU has an associated PU via the pointer firstPU.
+-      const PredictionUnit &pu = *cu->firstPU;
+-      intraMode = PU::getIntraDirLuma(pu);
+-    }
+-    ofs.write(reinterpret_cast<const char*>(&intraMode), sizeof(intraMode));
+-
+-    //const CPelBuf predBuf = cu->cs->getPredBuf(COMPONENT_Y);
+-    //const CPelBuf origBuf = cu->cs->getPredBuf(COMPONENT_Y);
+-
+-    // Save transform mode information.
+-    int mtsFlag = cu->mtsFlag;    // CU's MTS flag.
+-    int lfnstIdx = cu->lfnstIdx;  // CU's LFNST index.
+-    ofs.write(reinterpret_cast<const char*>(&mtsFlag), sizeof(mtsFlag));
+-    ofs.write(reinterpret_cast<const char*>(&lfnstIdx), sizeof(lfnstIdx));
+-
+-    // Save the RDO cost from the CU's coding structure.
+-    double rdoCost = cu->cs->cost;
+-    ofs.write(reinterpret_cast<const char*>(&rdoCost), sizeof(rdoCost));
+-
+-    // Save the raw residuals from the global residual buffer for the CU's region.
+-    for (int row = 0; row < height; row++)
+-    {
+-      for (int col = 0; col < width; col++)
+-      {
+-        int global_col = posX - og_x + col;
+-        int global_row = posY - og_y + row;
+-        int resi = origBuf.at(global_col, global_row) - predBuf.at(global_col, global_row);
+-        ofs.write(reinterpret_cast<const char*>(&resi), sizeof(resi));
+-      }
+-    }
+-    ofs.close();
+-  }
+ }
+ 
+ #if SHARP_LUMA_DELTA_QP || ENABLE_QPA_SUB_CTU
+@@ -1778,12 +1691,12 @@
+             {
+               if (!cu.colorTransform)
+               {
+-                cu.cs->picture->getRecoBuf(cu.Y()).copyFrom(cu.cs->getRecoBuf(COMPONENT_Y)); //MODIFIED PLEASE BE CAREFUL
++                cu.cs->picture->getRecoBuf(cu.Y()).copyFrom(cu.cs->getRecoBuf(COMPONENT_Y));
+                 cu.cs->picture->getPredBuf(cu.Y()).copyFrom(cu.cs->getPredBuf(COMPONENT_Y));
+               }
+               else
+               {
+-                cu.cs->picture->getRecoBuf(cu).copyFrom(cu.cs->getRecoBuf(cu)); //MODIFIED PLEASE BE CAREFUL
++                cu.cs->picture->getRecoBuf(cu).copyFrom(cu.cs->getRecoBuf(cu));
+                 cu.cs->picture->getPredBuf(cu).copyFrom(cu.cs->getPredBuf(cu));
+               }
+             }
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/EncoderLib/EncCu.h VTM_WMSE/source/Lib/EncoderLib/EncCu.h
+--- VTM_stock/source/Lib/EncoderLib/EncCu.h	2025-02-18 11:37:17.956139468 -0800
++++ VTM_WMSE/source/Lib/EncoderLib/EncCu.h	2025-02-04 07:23:23.000000000 -0800
+@@ -330,11 +330,11 @@
+   ~EncCu();
+ 
+ protected:
+-  void saveAllCuInfo          (const CodingStructure* bestCS, const UnitArea currCsArea, const CPelBuf predBuf);
++
+   void xCalDebCost            ( CodingStructure &cs, Partitioner &partitioner, bool calDist = false );
+   Distortion getDistortionDb  ( CodingStructure &cs, CPelBuf org, CPelBuf reco, ComponentID compID, const CompArea& compArea, bool afterDb );
+ 
+-  void xCompressCU            ( CodingStructure*& tempCS, CodingStructure*& bestCS, Partitioner& pm, double maxCostAllowed = MAX_DOUBLE , bool dump = false);
++  void xCompressCU            ( CodingStructure*& tempCS, CodingStructure*& bestCS, Partitioner& pm, double maxCostAllowed = MAX_DOUBLE );
+ 
+   bool
+     xCheckBestMode         ( CodingStructure *&tempCS, CodingStructure *&bestCS, Partitioner &pm, const EncTestMode& encTestmode );
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/EncoderLib/EncLib.cpp VTM_WMSE/source/Lib/EncoderLib/EncLib.cpp
+--- VTM_stock/source/Lib/EncoderLib/EncLib.cpp	2025-02-14 06:27:09.148046154 -0800
++++ VTM_WMSE/source/Lib/EncoderLib/EncLib.cpp	2026-08-31 11:55:12.710091969 -0700
+@@ -132,6 +132,16 @@
+ 
+ void EncLib::destroy ()
+ {
++  if (m_weightedRdo)
++  {
++    uint64_t wtd = 0;
++    uint64_t unw = 0;
++    m_cRdCost.getWeightedRdoStats(wtd, unw);
++    printf("Weighted-MSE RDO: %llu SSE calls weighted, %llu left unweighted (%.1f%% weighted)\n",
++           (unsigned long long) wtd, (unsigned long long) unw,
++           (wtd + unw) ? 100.0 * (double) wtd / (double) (wtd + unw) : 0.0);
++  }
++
+   // destroy processing unit classes
+   m_cGOPEncoder.        destroy();
+   m_cSliceEncoder.      destroy();
+@@ -184,6 +194,24 @@
+   }
+   m_cRdCost.setCostMode ( m_costMode );
+ 
++  // ---- weighted-MSE RDO -------------------------------------------------------------------
++  if (m_weightedRdo)
++  {
++    printf("Weighted-MSE RDO: loading '%s' (tau = %.3f, weighted RDOQ lambda = %d)\n", m_weightsFile.c_str(),
++           m_weightedRdoTau, m_weightedRdoq ? 1 : 0);
++    const std::string diagFile = m_weightedRdoBlockFile.empty() ? m_weightsFile : std::string();
++    if (!m_cWeightMap.init(m_sourceWidth, m_sourceHeight, m_chromaFormatIdc, diagFile, 0, m_weightedRdoTau,
++                           m_weightedRdoGlobalNorm))
++    {
++      EXIT("Weighted-MSE RDO enabled but the weight map could not be initialised");
++    }
++    if (!m_weightedRdoBlockFile.empty() && !m_cWeightMap.loadBlockFile(m_weightedRdoBlockFile))
++    {
++      EXIT("Weighted-MSE RDO: the block-Hessian file could not be loaded");
++    }
++    m_cRdCost.setWeightMap(&m_cWeightMap);
++  }
++
+   // initialize PPS
+   pps0.setPicWidthInLumaSamples( m_sourceWidth );
+   pps0.setPicHeightInLumaSamples( m_sourceHeight );
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/EncoderLib/EncLib.h VTM_WMSE/source/Lib/EncoderLib/EncLib.h
+--- VTM_stock/source/Lib/EncoderLib/EncLib.h	2025-02-14 06:27:09.148046154 -0800
++++ VTM_WMSE/source/Lib/EncoderLib/EncLib.h	2026-08-30 22:05:57.228456100 -0700
+@@ -42,6 +42,7 @@
+ #include "CommonLib/TrQuant.h"
+ #include "CommonLib/DeblockingFilter.h"
+ #include "CommonLib/NAL.h"
++#include "CommonLib/WeightMap.h"
+ 
+ #include "Utilities/VideoIOYuv.h"
+ 
+@@ -106,6 +107,7 @@
+   PicHeader                 m_picHeader;                          ///< picture header
+   // RD cost computation
+   RdCost                    m_cRdCost;                            ///< RD cost computation class
++  WeightMap                 m_cWeightMap;                         ///< per-pixel importance weights for weighted-MSE RDO
+   CtxPool                   m_ctxPool;                            ///< buffer for temporarily stored context models
+   // quality control
+   RateCtrl                  m_cRateCtrl;                          ///< Rate control class
+@@ -197,6 +199,7 @@
+   CABACEncoder*           getCABACEncoder       ()              { return  &m_CABACEncoder;         }
+ 
+   RdCost*                 getRdCost             ()              { return  &m_cRdCost;              }
++  WeightMap*              getWeightMap          ()              { return  &m_cWeightMap;           }
+   CtxPool                *getCtxCache() { return &m_ctxPool; }
+   RateCtrl*               getRateCtrl           ()              { return  &m_cRateCtrl;            }
+   void                    setRefLayerRescaledAvailable(bool b)  { m_refLayerRescaledAvailable = b; }
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/EncoderLib/EncSlice.cpp VTM_WMSE/source/Lib/EncoderLib/EncSlice.cpp
+--- VTM_stock/source/Lib/EncoderLib/EncSlice.cpp	2025-02-14 06:27:09.148046154 -0800
++++ VTM_WMSE/source/Lib/EncoderLib/EncSlice.cpp	2026-08-30 22:06:31.520312767 -0700
+@@ -378,6 +378,25 @@
+   PicHeader *picHeader = pcPic->cs->picHeader;
+   pcPic->cs->resetPrevPLT(pcPic->cs->prevPLT);
+ 
++  // weighted-MSE RDO: register the full-picture source buffers so that RdCost can map a block
++  // pointer back to its position in the importance map
++  if (m_pcRdCost->isWeightedRdo())
++  {
++    m_pcRdCost->clearOrgOrigins();
++    for (uint32_t c = 0; c < getNumberValidComponents(pcPic->chromaFormat); c++)
++    {
++      const ComponentID compID = ComponentID(c);
++      const CPelBuf     orgBuf = pcPic->getOrigBuf(compID);
++      m_pcRdCost->setOrgOrigin(0, compID, orgBuf.buf, orgBuf.stride, (int) orgBuf.width, (int) orgBuf.height);
++      const CPelBuf trueOrgBuf = pcPic->getTrueOrigBuf(compID);
++      if (trueOrgBuf.buf != nullptr && trueOrgBuf.buf != orgBuf.buf)
++      {
++        m_pcRdCost->setOrgOrigin(1, compID, trueOrgBuf.buf, trueOrgBuf.stride, (int) trueOrgBuf.width,
++                                 (int) trueOrgBuf.height);
++      }
++    }
++  }
++
+   rpcSlice = pcPic->slices[0];
+   rpcSlice->setSliceBits(0);
+   rpcSlice->setPic( pcPic );
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/EncoderLib/IntraSearch.cpp VTM_WMSE/source/Lib/EncoderLib/IntraSearch.cpp
+--- VTM_stock/source/Lib/EncoderLib/IntraSearch.cpp	2026-06-27 11:47:09.364258950 -0700
++++ VTM_WMSE/source/Lib/EncoderLib/IntraSearch.cpp	2026-08-30 22:20:44.269631313 -0700
+@@ -49,10 +49,6 @@
+ 
+ #include <math.h>
+ #include <limits>
+-#include <filesystem>
+-#include <string>
+-#include <fstream>  // <-- Add this line
+-
+  //! \ingroup EncoderLib
+  //! \{
+ #define PLTCtx(c) SubCtx( Ctx::Palette, c )
+@@ -506,87 +502,11 @@
+ }
+ #endif
+ 
+-IntraBlockResidualInfo IntraSearch::saveIntraResidual(const CodingUnit &cu, const PredictionUnit &pu, const CodingStructure *cs)
+-{
+-  IntraBlockResidualInfo info;
+-
+-  // Use index 0 for the luma block instead of ChannelType::LUMA.
+-  info.x      = cu.blocks[0].x;
+-  info.y      = cu.blocks[0].y;
+-  info.width  = cu.blocks[0].width;
+-  info.height = cu.blocks[0].height;
+-
+-  info.intraMode = pu.intraDir[ChannelType::LUMA]; // for example, accessing the intra prediction mode from pu
+-  info.lfnstIdx  = cu.lfnstIdx;
+-  info.mipFlag = cu.mipFlag;
+-  info.multiRefIdx = pu.multiRefIdx;
+-  
+-  // Pass the correct component identifier (e.g., COMPONENT_Y) to getResiBuf.
+-  const CPelBuf resiBuf = cs->getResiBuf(COMPONENT_Y);
+-  int stride = resiBuf.stride;
+-  
+-  info.residualData.resize(info.width * info.height);
+-  
+-  for (int row = 0; row < info.height; row++)
+-  {
+-    for (int col = 0; col < info.width; col++)
+-    {
+-      info.residualData[row * info.width + col] = resiBuf.buf[row * stride + col];
+-    }
+-  }
+-  
+-  // rather than pushing this, can you return this info to the caller?
+-  return info;
+-}
+-
+-
+-// New member function to dump residual info to files with a dynamic starting index.
+-void IntraSearch::dumpResidualsToFiles(IntraBlockResidualInfo info) const
+-{
+-    //initialize folderPath to "residuals/"
+-    std::string folderPath = "residuals/";
+-    // Create the folder if it doesn't exist.
+-    std::filesystem::create_directories(folderPath);
+-
+-    // Count already existing residual files.
+-    size_t startIndex = 0;
+-    for (const auto &entry : std::filesystem::directory_iterator(folderPath))
+-    {
+-        if (entry.is_regular_file())
+-            startIndex++;
+-    }
+-    std::string filename = folderPath + "tmp_" + std::to_string(startIndex + 1) + ".dat";
+-    std::ofstream ofs(filename, std::ios::binary);
+-    if (!ofs)
+-    {
+-        // Handle file open error if necessary.
+-        return;
+-    }
+-    // Write header info: x, y, width, height, intraMode, lfnstIdx, mipFlag, multiRefIdx.
+-    ofs.write(reinterpret_cast<const char*>(&info.x), sizeof(int));
+-    ofs.write(reinterpret_cast<const char*>(&info.y), sizeof(int));
+-    ofs.write(reinterpret_cast<const char*>(&info.width), sizeof(int));
+-    ofs.write(reinterpret_cast<const char*>(&info.height), sizeof(int));
+-    ofs.write(reinterpret_cast<const char*>(&info.intraMode), sizeof(int));
+-    ofs.write(reinterpret_cast<const char*>(&info.lfnstIdx), sizeof(int));
+-    ofs.write(reinterpret_cast<const char*>(&info.mipFlag), sizeof(int));
+-    ofs.write(reinterpret_cast<const char*>(&info.multiRefIdx), sizeof(int));
+-    // Write number of residual values.
+-    int numResidual = static_cast<int>(info.residualData.size());
+-    ofs.write(reinterpret_cast<const char*>(&numResidual), sizeof(int));
+-    // Write residual data (each residual is of type Pel; adjust if Pel is not an int).
+-    if (!info.residualData.empty())
+-    {
+-        ofs.write(reinterpret_cast<const char*>(info.residualData.data()), numResidual * sizeof(Pel));
+-    }
+-    ofs.close();
+-    }
+-
+-
+ bool IntraSearch::estIntraPredLumaQT(CodingUnit &cu, Partitioner &partitioner, const double bestCostSoFar, bool mtsCheckRangeFlag, int mtsFirstCheckId, int mtsLastCheckId, bool moreProbMTSIdxFirst, CodingStructure* bestCS)
+ {
+   CodingStructure &cs  = *cu.cs;
+   const SPS       &sps = *cs.sps;
++
+   const uint32_t logWidth  = floorLog2(partitioner.currArea().lwidth());
+   const uint32_t logHeight = floorLog2(partitioner.currArea().lheight());
+ 
+@@ -1479,7 +1399,6 @@
+                            KEEP_PRED_AND_RESI_SIGNALS, KEEP_PRED_AND_RESI_SIGNALS, true);
+       }
+     }
+-         
+     csBest->releaseIntermediateData();
+     if( validReturn )
+     {
+@@ -1495,9 +1414,6 @@
+               "chroma should use DM mode for adaptive color transform");
+       }
+     }
+-    //IntraBlockResidualInfo info = saveIntraResidual(cu, pu, csBest);
+-    //printResidualInfos(info);
+-    //dumpResidualsToFiles(info);    
+   }
+ 
+   //===== reset context models =====
+@@ -1845,16 +1761,6 @@
+   }
+ }
+ 
+-// Example function to print stored intra residual info
+-void IntraSearch::printResidualInfos(IntraBlockResidualInfo info) const
+-{
+-    FILE *fp = fopen("debug.log", "a");
+-    fprintf(fp, "Block at (%d, %d), size: %dx%d, intraMode: %d, lfnstIdx: %d, mipFlag: %d, multiRefIdx: %d\n",
+-              info.x, info.y, info.width, info.height, info.intraMode, info.lfnstIdx, info.mipFlag, info.multiRefIdx);
+-        // You can loop over info.residualData if needed.
+-    fclose(fp);
+-}
+-
+ void IntraSearch::initCuAreaCostInSCIPU()
+ {
+   for( int i = 0; i < NUM_INTER_CU_INFO_SAVE; i++ )
+@@ -3183,47 +3089,7 @@
+       {
+         if (isLuma(compID))
+         {
+-          // --- LFNST diagnostics dump (env-gated) ---
+-          //   LFNST_DIAG=<file>: every luma TU -> {int32 w,h,lfnstIdx; double bits}
+-          //   LFNST_DUMP=<file>: LFNST-selected luma TUs -> + the 16 top-left coeffs
+-          const char *_lfnstDumpPath = getenv("LFNST_DUMP");
+-          const char *_lfnstDiagPath = getenv("LFNST_DIAG");
+-          uint64_t _fb0 = (_lfnstDumpPath || _lfnstDiagPath) ? m_CABACEstimator->getEstFracBits() : 0;
+           m_CABACEstimator->residual_coding(currTU, compID, cuCtx);
+-          double _lbits = (_lfnstDumpPath || _lfnstDiagPath)
+-                          ? double(m_CABACEstimator->getEstFracBits() - _fb0) / double(1 << SCALE_BITS) : 0.0;
+-          if (_lfnstDiagPath)
+-          {
+-            static FILE *_diagFile = fopen(_lfnstDiagPath, "wb");
+-            if (_diagFile)
+-            {
+-              int32_t _hh[3] = { int32_t(currTU.blocks[compID].width),
+-                                 int32_t(currTU.blocks[compID].height),
+-                                 int32_t(currTU.cu->lfnstIdx) };
+-              fwrite(_hh, sizeof(int32_t), 3, _diagFile);
+-              fwrite(&_lbits, sizeof(double), 1, _diagFile);
+-              fflush(_diagFile);
+-            }
+-          }
+-          if (_lfnstDumpPath && currTU.cu->lfnstIdx > 0)
+-          {
+-            static FILE *_lfnstDumpFile = fopen(_lfnstDumpPath, "wb");
+-            if (_lfnstDumpFile)
+-            {
+-              const CCoeffBuf _cb = currTU.getCoeffs(compID);
+-              int32_t _hdr[3] = { int32_t(currTU.blocks[compID].width),
+-                                  int32_t(currTU.blocks[compID].height),
+-                                  int32_t(currTU.cu->lfnstIdx) };
+-              int32_t _coef[16];
+-              for (int _yy = 0; _yy < 4; _yy++)
+-                for (int _xx = 0; _xx < 4; _xx++)
+-                  _coef[_yy * 4 + _xx] = int32_t(_cb.at(_xx, _yy));
+-              fwrite(_hdr, sizeof(int32_t), 3, _lfnstDumpFile);
+-              fwrite(&_lbits, sizeof(double), 1, _lfnstDumpFile);
+-              fwrite(_coef, sizeof(int32_t), 16, _lfnstDumpFile);
+-              fflush(_lfnstDumpFile);
+-            }
+-          }
+           m_CABACEstimator->mts_idx(*currTU.cu, cuCtx);
+         }
+         else
+@@ -3488,6 +3354,19 @@
+   m_pcTrQuant->selectLambda(compID);
+ #endif
+ 
++  // weighted-MSE RDO: the transform is orthonormal, so a block whose pixels carry mean
++  // importance wbar has a coefficient-domain distortion of about wbar * SSE.  Minimising
++  // wbar * SSE + lambda * R is the same as minimising SSE + (lambda / wbar) * R.
++  if (m_pcEncCfg->getWeightedRdoq() && m_pcRdCost->isWeightedRdo())
++  {
++    const double wbar = m_pcRdCost->getWeightMap()->getMeanWeight(compID, area.x, area.y, (int) area.width,
++                                                                  (int) area.height);
++    if (wbar > 0.0)
++    {
++      m_pcTrQuant->setLambda(m_pcTrQuant->getLambda() / wbar);
++    }
++  }
++
+   flag =flag && (tu.blocks[compID].width*tu.blocks[compID].height > 4);
+   if (flag && isChroma(compID) && slice.getPicHeader()->getLmcsChromaResidualScaleFlag() )
+   {
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_stock/source/Lib/EncoderLib/IntraSearch.h VTM_WMSE/source/Lib/EncoderLib/IntraSearch.h
+--- VTM_stock/source/Lib/EncoderLib/IntraSearch.h	2025-02-16 18:52:48.594992236 -0800
++++ VTM_WMSE/source/Lib/EncoderLib/IntraSearch.h	2025-02-04 07:23:23.000000000 -0800
+@@ -187,25 +187,9 @@
+   int shift[3], lastCnt[3], data[3], sumData[3];
+ };
+ /// encoder search class
+-
+-struct IntraBlockResidualInfo
+-{
+-  int x, y, width, height;
+-  std::vector<Pel> residualData;  // Ensure 'Pel' is defined
+-  int intraMode;                  // The chosen intra prediction mode
+-  int lfnstIdx;                   // LFNST index if applicable
+-  int mipFlag;                    // MIP flag if applicable
+-  int multiRefIdx;
+-};
+-
+ class IntraSearch : public IntraPrediction
+ {
+ private:
+-  std::vector<IntraBlockResidualInfo> m_intraResidualInfos;
+-  IntraBlockResidualInfo saveIntraResidual(const CodingUnit &cu, const PredictionUnit &pu, const CodingStructure *cs);
+-  void printResidualInfos(IntraBlockResidualInfo) const;  
+-  void dumpResidualsToFiles(IntraBlockResidualInfo info) const;
+-
+   EncModeCtrl    *m_modeCtrl;
+   Pel*            m_pSharedPredTransformSkip[MAX_NUM_TBLOCKS];
+ 
