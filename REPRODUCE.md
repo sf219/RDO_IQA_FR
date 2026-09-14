@@ -9,7 +9,7 @@ directory `work/weights/<METRIC>_<tag>/` and of the `base` column of the CSV sum
 
 * Python 3.9 with the packages in `requirements.txt`; `ffmpeg` on the path (PNG to YUV 4:2:0).
 * Run the scripts with `method/` on the Python path: `export PYTHONPATH=$PWD/method`.
-* Encoders. Main protocol: VTM-23.8 plus `vtm/vtm-23.8_weighted_rdo.patch`. Protocol of Yang and Bajic (Table 4):
+* Encoders. Main protocol: VTM-23.8 plus `vtm/vtm-23.8_weighted_rdo.patch`. Protocol of Yang and Bajic (Table 3):
   VTM-23.0 plus `vtm/vtm-23.0_qpmap.patch`. Build:
   ```bash
   git clone https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM.git -b VTM-23.8 VTM_WMSE

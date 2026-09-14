@@ -31,7 +31,7 @@ method/        the method
   vendor/                 Wasserstein Distortion, reference implementation (Apache-2.0)
 vtm/           encoder patches
   vtm-23.8_weighted_rdo.patch   weighted SSE in every RDO decision + RDOQ multiplier (main protocol)
-  vtm-23.0_qpmap.patch          the same, plus a CTU-level delta-QP map on top of PerceptQPA (Table 4 protocol)
+  vtm-23.0_qpmap.patch          the same, plus a CTU-level delta-QP map on top of PerceptQPA (Table 3 protocol)
 experiments/   one script per table and figure, the CSV summaries they read, and their outputs
   results/     summaries      tables/  the paper's tables      figures/  the paper's figures
 REPRODUCE.md   every number in the paper, the command that produced it, and the conventions
@@ -58,7 +58,7 @@ cd VTM_WMSE && patch -p1 < ../vtm/vtm-23.8_weighted_rdo.patch
 mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j
 ```
 
-The same with `-b VTM-23.0` and `vtm/vtm-23.0_qpmap.patch` for the Table 4 protocol. Both patches add
+The same with `-b VTM-23.0` and `vtm/vtm-23.0_qpmap.patch` for the Table 3 protocol. Both patches add
 `source/Lib/CommonLib/WeightMap.{h,cpp}` and touch the encoder only; bitstreams decode with the stock decoder.
 Encoder options: `--WeightedRdo`, `--WeightedRdoFile` (diagonal map), `--WeightedRdoBlockFile` (8x8 tiles),
 `--WeightedRdoTau`, `--WeightedRdoq`.
