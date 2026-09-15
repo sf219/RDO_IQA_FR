@@ -14,7 +14,7 @@ from litqp_match import THEIRS, families, at_cost
 
 # MS-SSIM-RGB map and LPIPS-Alex map families (weighted RDOQ on).  LIT_MS / LIT_LP select the series shown:
 # 'rq_mrgbd'/'rq_alexd' are the diagonal maps, 'rqb_mrgbb'/'rqb_alexb' the block maps (12 Sept grid).
-MS, LP = os.environ.get('LIT_MS', 'rq_mrgbd'), os.environ.get('LIT_LP', 'rq_alexd')
+MS, LP = os.environ.get('LIT_MS', 'rqb_mrgbb'), os.environ.get('LIT_LP', 'rqb_alexb')   # paper rows: block maps; LIT_MS=rq_mrgbd LIT_LP=rq_alexd gives the diagonal-map row
 MATCH  = 0.98                            # their best configuration's RGB-PSNR cost; ours is read there
 
 def plain(s):
