@@ -26,7 +26,7 @@ K = rows(os.path.join(TAB, 'table1_paper.tex')); C = rows(os.path.join(TAB, 'tab
 assert len(K) == len(C), (len(K), len(C))
 KCOST = '$%+.1f$' % json.load(open('work/qpa_cost.json'))['psnr_y_bd_rate']
 CCOST = '$%s$' % re.search(r'\\clicAt\}\{([^}]+)\}', open(os.path.join(TAB, 'clic_macros.tex')).read()).group(1)   # literal: the table* is input before clic_macros
-lines = ['\\begin{tabular}{llrrrrrrrrrrrr}', '\\toprule',
+lines = ['\\begin{tabular}{llrrrrrr|rrrrrr}', '\\toprule',
          ' & & \\multicolumn{6}{c}{Kodak} & \\multicolumn{6}{c}{CLIC} \\\\',
          '\\cmidrule(lr){3-8}\\cmidrule(lr){9-14}']
 for k, c in zip(K, C):

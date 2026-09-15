@@ -28,6 +28,8 @@ directory `work/weights/<METRIC>_<tag>/` and of the `base` column of the CSV sum
   `HW_BH_CKPT_SEC=300` (resume checkpoints of the block Hutchinson estimator). `EVAL_WD=1` scores Wasserstein
   Distortion (required for every WD column). `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is recommended.
 
+Shipped data: `experiments/results/vvc_rdo_*.json` (per-image scores of every Kodak series in the paper), `experiments/results/clic/done*/` (per-image CLIC scores), the CSV summaries, and the small `work/*.json` files; maps, YUVs and bitstreams are not shipped.
+
 ## 1. Data
 
 * Kodak: the 24 images, all in landscape orientation (768x512). The driver converts each PNG to
@@ -83,7 +85,7 @@ configuration tags end in `_rdoq`). Anchor encodes (`anchor_qp<QP>`) come from t
 MS-SSIM is scored with the standard 5-level MS-SSIM (`method/msssim_std.py`, sigma = 1.5 window); the WD column
 is `wd2` (log2 sigma = 2). `PerceptQPA` baseline: encodes with `--PerceptQPA=1`, BD-rates by
 `experiments/qpa_bd.py` (`work/qpa_bd_ctc.json`); `experiments/pick_tau.py` writes its Y-PSNR cost to
-`work/qpa_cost.json` (+8.15 % on Kodak). Aggregation: `experiments/results_to_csv.py --results method/results`
+`work/qpa_cost.json` (+8.15 % on Kodak). Aggregation: `experiments/results_to_csv.py` (default input `experiments/results/vvc_rdo_*.json`, the shipped per-run files; pass `--results method/results` for new runs)
 writes `experiments/results/kodak_json/summary.csv` (BD-rate: piecewise-linear in log-rate over the shared quality range).
 
 ## 4. Tables and figures
@@ -93,8 +95,8 @@ All scripts live in `experiments/` and read the CSV summaries under `experiments
 | Item | Command | Notes |
 |---|---|---|
 | Table 1 (Kodak and CLIC, page-wide) | Kodak half: `python plots/make_all.py` -> `tables/table1_paper.tex`; CLIC half: see Table 3 row below -> `tables/table2_clic_paper.tex`; merge: `python combined_table.py tables` -> `tables/table_kodak_clic.tex` (adds a Y-PSNR column per set holding PQA's cost); `python stats_table1.py` (bootstrap CIs); `python paper_numbers.py` (abstract and Main-result numbers) | rows interpolated along tau to `PerceptQPA`'s Y-PSNR cost on each set; series in `plots/make_all.py:SERIES`; `PerceptQPA` is labelled PQA |
-| Table 2 (ablation) | `python ablation_table.py` -> `tables/table3_ablation.tex` | series per row in `ablation_table.py:ROWS`, all read at the same cost; the console output also prints the unprojected HVP, second-seed and PSD-check numbers quoted in the text |
-| CLIC half of Table 1 | `python clic_run.py --summary --out results/clic` then `python clic_table.py` -> `tables/table2_clic_paper.tex`, `tables/clic_macros.tex` | per-image JSONs come from `clic_run.py` (maps, anchor, `PerceptQPA`, diagonal and block rows, scoring); three tau per row, interpolated to `PerceptQPA`'s Y-PSNR cost on CLIC (+9.7 %); the Y-PSNR column is not printed since every row sits at that cost |
+| Table 2 (ablation) | `python ablation_table.py` -> `tables/table3_ablation.tex` | series per row in `ablation_table.py:ROWS`, all read at the same cost (PSD HVP row: LPIPS -9.5, DISTS -10.6, WD -15.0 at +8.15 %); the console output also prints the unprojected HVP, second-seed and PSD-check numbers |
+| CLIC half of Table 1 | `python clic_run.py --summary --out results/clic` (reads the shipped per-image files under `results/clic/done*/`) then `python clic_table.py` -> `tables/table2_clic_paper.tex`, `tables/clic_macros.tex` | per-image JSONs come from `clic_run.py` (maps, anchor, `PerceptQPA`, diagonal and block rows, scoring); three tau per row, interpolated to `PerceptQPA`'s Y-PSNR cost on CLIC (+9.7 %); the Y-PSNR column is not printed since every row sits at that cost |
 | Table 3 (Yang and Bajic) | maps: `litqp_maps.sh` (diagonal), Sec. 2 block rows; encodes: `TAG=rqb EXTRA=--WeightedRdoq=1 MAPS=$'alexb LPIPS_ALEX_alexb8 bh\nmrgbb MS_SSIM_RGB_mrgbb8 bh' ./litqp_variant2.sh`; scoring: `python litqp_score.py` -> `results/litqp/summary.csv`; table: `python lit_table4.py` -> `tables/table4_literature.tex` | VTM-23.0, CTU 64 (`--CTUSize=64 --MaxBTLumaISlice=64 --MaxBTChromaISlice=32 --MaxBTNonISlice=64 --MaxTTLumaISlice=32 --MaxTTChromaISlice=32`), `--PerceptQPA=1 --WeightedRdo=1 --WeightedRdoQpMap=1`, MS-SSIM and PSNR on RGB, LPIPS-Alex; our row read along tau at the RGB-PSNR cost of their best configuration (+0.98 %) |
 | Fig. 3 (maps) | `python maps_fig.py --image kodim23` -> `figures/maps.png` | block maps of the five metrics (Sec. 2 tags), per-plane unit-mean normalized as the encoder does, log10 scale, 1-99 % colour limits |
 | Fig. 4 (tau sweep) | `python plots/figs.py` -> `figures/tau_sweep.png` | `plots/figs.py:MET` |
@@ -118,7 +120,7 @@ All scripts live in `experiments/` and read the CSV summaries under `experiments
 
 | Paper element | Source |
 |---|---|
-| Abstract and introduction ranges (16-24 %, up to 12 % over `PerceptQPA`, 10-30 % runtime), Main-result numbers | `python paper_numbers.py` (reads `results/table1/summary.csv`, `results/table1/stats.csv`, `work/qpa_bd_ctc.json`, `results/complexity/summary.csv`) |
+| Abstract and introduction ranges (16-24 % on Kodak and 14-37 % on CLIC on the target metric, up to 12 % over `PerceptQPA`, 10-30 % runtime) | `python paper_numbers.py` (reads `results/table1/summary.csv`, `results/table1/stats.csv`, `work/qpa_bd_ctc.json`, `results/complexity/summary.csv`) |
 | Bootstrap 95 % intervals (Main result) | `python stats_table1.py` -> `results/table1/stats.csv` |
 | `PerceptQPA` cost +8.1 % (Kodak), +9.7 % (CLIC) | `work/qpa_cost.json` (`pick_tau.py`); `tables/clic_macros.tex` (`clic_table.py`) |
 | Block-diagonal energy 99 / 99 / 63 / 15 / 0.3 %, diagonal 11 / 42 / 18 / 4 / 0.02 % | `results/hess_structure/summary_full.csv` (SSIM, MS-SSIM) and `summary_c512.csv` (LPIPS, DISTS, WD), MEAN rows |

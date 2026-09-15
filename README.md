@@ -32,8 +32,8 @@ method/        the method
 vtm/           encoder patches
   vtm-23.8_weighted_rdo.patch   weighted SSE in every RDO decision + RDOQ multiplier (main protocol)
   vtm-23.0_qpmap.patch          the same, plus a CTU-level delta-QP map on top of PerceptQPA (Table 3 protocol)
-experiments/   one script per table and figure, the CSV summaries they read, and their outputs
-  results/     summaries      tables/  the paper's tables      figures/  the paper's figures
+experiments/   one script per table and figure, the per-run results and CSV summaries they read, and their outputs
+  results/     per-image scores (vvc_rdo_*.json, clic/done*/) and summaries      tables/  the paper's tables      figures/  the paper's figures
 REPRODUCE.md   every number in the paper, the command that produced it, and the conventions
 ```
 
@@ -74,7 +74,7 @@ python method/vvc_rdo_experiment.py --metric LPIPS --estimator gnblock --probes 
     --qps 22 27 32 37 --taus 0.25 0.5 1 2 3 4 6 --rdoq-taus 0.25 0.5 1 2 3 4 6 --jobs 12
 
 # tables and figures from the summaries
-cd experiments && python results_to_csv.py --results ../method/results && python plots/make_all.py
+cd experiments && python results_to_csv.py && python plots/make_all.py   # the shipped per-run JSONs; --results ../method/results for new runs
 ```
 
 Datasets: Kodak (24 images) and the CLIC 2022 professional validation set; see `REPRODUCE.md`. Set `EVAL_WD=1`
