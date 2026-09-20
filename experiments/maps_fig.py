@@ -32,7 +32,7 @@ def read_bh_diag_y(p):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--image', default='kodim23')
-    ap.add_argument('--out', default='figures/maps.png')
+    ap.add_argument('--out', default='paper/figures/maps.png')
     a = ap.parse_args()
     y, u, v = read_yuv420(f'work/yuv/{a.image}.yuv', W, H)
     t = lambda x: torch.from_numpy(x).float()[None, None]
@@ -48,7 +48,7 @@ def main():
     # two rows of three fits a single column; one row of six only fits full width, which costs a page
     fig, axg = plt.subplots(2, 3, figsize=(3.4, 1.33))
     ax = axg.ravel()
-    ax[0].imshow(rgb); ax[0].set_title('source', fontsize=7, pad=1.8)
+    ax[0].imshow(rgb); ax[0].set_title('Source', fontsize=7, pad=1.8)
     for k, ((nm, _), l) in enumerate(zip(maps, L), 1):
         im = ax[k].imshow(l, cmap='gray', vmin=lo, vmax=hi)
         ax[k].set_title(nm, fontsize=7, pad=1.8)
@@ -60,7 +60,7 @@ def main():
     cax = fig.add_axes([0.912, 0.02, 0.018, 0.86])
     cb = fig.colorbar(im, cax=cax)          # no label: the caption says the scale is log10 of the weight
     cb.ax.tick_params(labelsize=6, length=2, pad=1.2)
-    os.makedirs('figures', exist_ok=True)
+    os.makedirs('paper/figures', exist_ok=True)
     fig.savefig(a.out, bbox_inches='tight', dpi=320)
     print(a.out)
 
