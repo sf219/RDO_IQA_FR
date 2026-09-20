@@ -25,14 +25,14 @@ tau_def = json.load(open('work/default_tau.json')) if os.path.exists('work/defau
 by = collections.defaultdict(dict)
 for r in rows:
     by[r['base']][float(r['tau'])] = r
-os.makedirs('figures', exist_ok=True)
+os.makedirs('paper/figures', exist_ok=True)
 
 # --- tau sweep -----------------------------------------------------------------------------
 # Drawn at the width it is printed at (\textwidth ~ 7.2 in) so the fonts are not scaled down by the include;
 # one legend for the whole strip, above the panels, so it cannot sit on a curve.
 fig, ax = plt.subplots(1, NPANEL, figsize=(7.2, 1.35))
 for a, (met, (dbase, bbase, key, _, _)) in zip(ax, MET.items()):
-    for base, lab, mk in ((dbase, 'diagonal', 'o'), (bbase, 'block', 's')):
+    for base, lab, mk in ((dbase, 'Diagonal', 'o'), (bbase, 'Block', 's')):
         pts = sorted(by[base].items())
         if len(pts) < 2: continue
         x = [float(r['bd_psnr_y']) for _, r in pts]; y = [float(r[key]) for _, r in pts]
@@ -48,12 +48,12 @@ h, l = ax[0].get_legend_handles_labels()
 lg = fig.legend(h, l, loc='lower center', bbox_to_anchor=(0.5, 0.005), ncol=3, fontsize=7, frameon=True, fancybox=False,
                 handlelength=1.6, columnspacing=1.6, borderpad=0.5)
 lg.get_frame().set_edgecolor('0.75'); lg.get_frame().set_linewidth(0.6)
-fig.tight_layout(pad=0.3, w_pad=0.5, rect=[0, 0.2, 1, 1]); fig.savefig('figures/tau_sweep.png', dpi=300, bbox_inches='tight'); print('figures/tau_sweep.png')
+fig.tight_layout(pad=0.3, w_pad=0.5, rect=[0, 0.2, 1, 1]); fig.savefig('paper/figures/tau_sweep.png', dpi=300, bbox_inches='tight'); print('paper/figures/tau_sweep.png')
 
 # --- probe sweep ---------------------------------------------------------------------------
 fig, ax = plt.subplots(1, NPANEL, figsize=(13 * NPANEL / 4.0, 3.2)); any_pts = False
 for a, (met, (dbase, bbase, key, dpre, bpre)) in zip(ax, MET.items()):
-    for kind, pre, full, mk in (('diagonal', dpre, dbase, 'o'), ('block', bpre, bbase, 's')):
+    for kind, pre, full, mk in (('Diagonal', dpre, dbase, 'o'), ('Block', bpre, bbase, 's')):
         t = tau_def.get(full)
         if t is None: continue
         ms, ys = [], []
@@ -64,13 +64,13 @@ for a, (met, (dbase, bbase, key, dpre, bpre)) in zip(ax, MET.items()):
         if len(ms) >= 2: a.plot(ms, ys, marker=mk, label=kind); any_pts = True
     a.set_xscale('log', base=2); a.set_title(met); a.set_xlabel('probes m'); a.grid(alpha=0.3)
 ax[0].set_ylabel('target-metric BD-rate (%)'); ax[0].legend(fontsize=8)
-fig.tight_layout(); fig.savefig('figures/probe_sweep.png', dpi=160); print('figures/probe_sweep.png', '(partial)' if not any_pts else '')
+fig.tight_layout(); fig.savefig('paper/figures/probe_sweep.png', dpi=160); print('paper/figures/probe_sweep.png', '(partial)' if not any_pts else '')
 
 
 # --- combined 2x4 figure for the paper (tau sweep on top, probe sweep below) -------------------
 fig, axs = plt.subplots(2, NPANEL, figsize=(14 * NPANEL / 4.0, 4.0))
 for a, (met, (dbase, bbase, key, _, _)) in zip(axs[0], MET.items()):
-    for base, lab, mk in ((dbase, 'diagonal', 'o'), (bbase, 'block', 's')):
+    for base, lab, mk in ((dbase, 'Diagonal', 'o'), (bbase, 'Block', 's')):
         pts = sorted(by[base].items())
         if len(pts) < 2: continue
         x = [float(r['bd_psnr_y']) for _, r in pts]; y = [float(r[key]) for _, r in pts]
@@ -80,7 +80,7 @@ for a, (met, (dbase, bbase, key, _, _)) in zip(axs[0], MET.items()):
     a.set_title(met); a.set_xlabel('Y-PSNR BD-rate (%)'); a.grid(alpha=0.3)
 axs[0, 0].set_ylabel('target-metric BD-rate (%)'); axs[0, 0].legend(fontsize=8)
 for a, (met, (dbase, bbase, key, dpre, bpre)) in zip(axs[1], MET.items()):
-    for kind, pre, full, mk in (('diagonal', dpre, dbase, 'o'), ('block', bpre, bbase, 's')):
+    for kind, pre, full, mk in (('Diagonal', dpre, dbase, 'o'), ('Block', bpre, bbase, 's')):
         t = tau_def.get(full)
         if t is None: continue
         ms, ys = [], []
@@ -91,4 +91,4 @@ for a, (met, (dbase, bbase, key, dpre, bpre)) in zip(axs[1], MET.items()):
         if len(ms) >= 2: a.plot(ms, ys, marker=mk, label=kind)
     a.set_xscale('log', base=2); a.set_xlabel('probes m'); a.grid(alpha=0.3)
 axs[1, 0].set_ylabel('target-metric BD-rate (%)')
-fig.tight_layout(); fig.savefig('figures/sweeps.png', dpi=170); print('figures/sweeps.png')
+fig.tight_layout(); fig.savefig('paper/figures/sweeps.png', dpi=170); print('paper/figures/sweeps.png')
