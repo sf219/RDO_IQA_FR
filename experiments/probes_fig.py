@@ -6,7 +6,7 @@ y: BD-rate on the metric the map is built for, read at PerceptQPA's Y-PSNR cost 
    Table 5, which quoted each m at its own cost and tau.
 One line per metric, markers m = 16, 32, 64, 128, 256.  The encoder's own cost does not depend on m (Fig. 5).
 Series: m < 256 from carc/probes_sweep.sbatch (tags sbh8n<m>, mbh8n<m>, bh8n<m>, dgnb8j3n<m>, gnb8j3n<m>);
-m = 256 is the Table-1 block series.  Writes figures/probes.png and results/probes/fig.csv.
+m = 256 is the Table-1 block series.  Writes paper/figures/probes.png and results/probes/fig.csv.
 """
 import csv, glob, json, os, collections
 import numpy as np
@@ -56,8 +56,8 @@ if not tsec:
 # explicit placement (no tight_layout: it shrinks the axes to fit the legend inside the figure height, so the plot got
 # smaller every time the legend moved down).  Figure fractions: axes 1.25 in tall, 0.86 in below it for ticks, the
 # x label, a clear gap and the legend; the paper scales the image to the column width, so only the axes width matters.
-fig = plt.figure(figsize=(3.4, 1.85))
-ax = fig.add_axes([0.15, 0.40, 0.83, 0.57])   # axes 1.05 in tall; the 0.74 in below it is unchanged
+fig = plt.figure(figsize=(3.4, 1.62))
+ax = fig.add_axes([0.15, 0.457, 0.83, 0.506])   # axes 0.82 in tall; the 0.74 in below it (ticks, label, gap, legend) is unchanged
 out = []
 for met, (pre, full, key) in SER.items():
     xs, ys, ms = [], [], []
@@ -81,12 +81,12 @@ hd, lb = ax.get_legend_handles_labels()
 lg = fig.legend(hd, lb, loc='lower center', bbox_to_anchor=(0.5, 0.01), ncol=5, fontsize=7, frameon=True, fancybox=False,
                 handlelength=1.4, columnspacing=1.0, borderpad=0.4)
 lg.get_frame().set_edgecolor('0.75'); lg.get_frame().set_linewidth(0.6)
-os.makedirs('figures', exist_ok=True); os.makedirs('results/probes', exist_ok=True)
-fig.savefig('figures/probes.png', bbox_inches='tight', dpi=300)
+os.makedirs('paper/figures', exist_ok=True); os.makedirs('results/probes', exist_ok=True)
+fig.savefig('paper/figures/probes.png', bbox_inches='tight', dpi=300)
 with open('results/probes/fig.csv', 'w', newline='') as fh:
     w = csv.DictWriter(fh, fieldnames=list(out[0].keys())); w.writeheader(); w.writerows(out)
 print(f'at Y-PSNR cost {AT:+.2f} %   [timing: {TIMING}]')
 for r in out:
     print(f"  {NAME[r['metric']]:8s} m={r['m']:3d}  time {r['map_time_s'] if r['map_time_s']=='' else round(r['map_time_s'],2)!s:>6}  "
           f"BD {r['bd_target'] if r['bd_target']=='' else round(r['bd_target'],1)!s:>6}{'' if r['inside'] in ('',1) else '*'}  (n_tau={r['n_tau']})")
-print('-> figures/probes.png')
+print('-> paper/figures/probes.png')
