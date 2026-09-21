@@ -30,25 +30,25 @@ os.makedirs('paper/figures', exist_ok=True)
 # --- tau sweep -----------------------------------------------------------------------------
 # Drawn at the width it is printed at (\textwidth ~ 7.2 in) so the fonts are not scaled down by the include;
 # one legend for the whole strip, above the panels, so it cannot sit on a curve.
-fig, ax = plt.subplots(1, NPANEL, figsize=(7.2, 1.35))
+fig, ax = plt.subplots(1, NPANEL, figsize=(7.2, 1.2))
 for a, (met, (dbase, bbase, key, _, _)) in zip(ax, MET.items()):
-    for base, lab, mk in ((dbase, 'Diagonal', 'o'), (bbase, 'Block', 's')):
+    for base, lab, mk in ((dbase, 'D', 'o'), (bbase, 'B', 's')):
         pts = sorted(by[base].items())
         if len(pts) < 2: continue
         x = [float(r['bd_psnr_y']) for _, r in pts]; y = [float(r[key]) for _, r in pts]
         a.plot(x, y, marker=mk, ms=2.8, lw=1.1, label=lab)
     if qpa:
-        a.plot(qpa['psnr_y'], qpa[key.replace('bd_', '')], marker='*', ms=7, color='k', ls='none', label='PerceptQPA'); a.axvline(qpa['psnr_y'], color='gray', ls='--', lw=0.6)
+        a.plot(qpa['psnr_y'], qpa[key.replace('bd_', '')], marker='*', ms=7, color='k', ls='none', label='PQA'); a.axvline(qpa['psnr_y'], color='gray', ls='--', lw=0.6)
     a.set_title(met, fontsize=8, pad=2); a.set_xlabel('Y-PSNR BD-rate (%)', fontsize=7, labelpad=1.5); a.grid(alpha=0.3)
     a.tick_params(labelsize=6.5, pad=1.5, length=2)
     for sp in ('top', 'right'):
         a.spines[sp].set_visible(False)
 ax[0].set_ylabel('Target BD-rate (%)', fontsize=7, labelpad=1.5)
-h, l = ax[0].get_legend_handles_labels()
-lg = fig.legend(h, l, loc='lower center', bbox_to_anchor=(0.5, 0.005), ncol=3, fontsize=7, frameon=True, fancybox=False,
-                handlelength=1.6, columnspacing=1.6, borderpad=0.5)
-lg.get_frame().set_edgecolor('0.75'); lg.get_frame().set_linewidth(0.6)
-fig.tight_layout(pad=0.3, w_pad=0.5, rect=[0, 0.2, 1, 1]); fig.savefig('paper/figures/tau_sweep.png', dpi=300, bbox_inches='tight'); print('paper/figures/tau_sweep.png')
+# minimal legend inside the first panel (its upper right is empty); the caption expands D, B and PQA
+lg = ax[0].legend(loc='upper right', fontsize=6, frameon=True, fancybox=False, handlelength=1.3, handletextpad=0.4,
+                  borderpad=0.3, labelspacing=0.2, borderaxespad=0.3)
+lg.get_frame().set_edgecolor('0.75'); lg.get_frame().set_linewidth(0.5)
+fig.tight_layout(pad=0.3, w_pad=0.5); fig.savefig('paper/figures/tau_sweep.png', dpi=300, bbox_inches='tight'); print('paper/figures/tau_sweep.png')
 
 # --- probe sweep ---------------------------------------------------------------------------
 fig, ax = plt.subplots(1, NPANEL, figsize=(13 * NPANEL / 4.0, 3.2)); any_pts = False
