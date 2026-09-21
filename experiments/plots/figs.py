@@ -30,7 +30,7 @@ os.makedirs('paper/figures', exist_ok=True)
 # --- tau sweep -----------------------------------------------------------------------------
 # Drawn at the width it is printed at (\textwidth ~ 7.2 in) so the fonts are not scaled down by the include;
 # one legend for the whole strip, above the panels, so it cannot sit on a curve.
-fig, ax = plt.subplots(1, NPANEL, figsize=(7.2, 1.2))
+fig, ax = plt.subplots(1, NPANEL, figsize=(7.2, 1.05))
 for a, (met, (dbase, bbase, key, _, _)) in zip(ax, MET.items()):
     for base, lab, mk in ((dbase, 'D', 'o'), (bbase, 'B', 's')):
         pts = sorted(by[base].items())
