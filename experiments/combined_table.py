@@ -3,8 +3,8 @@
 Merges the two generated tables row by row -- tables/table1_paper.tex (plots/make_all.py) and
 tables/table2_clic_paper.tex (clic_table.py) have the same rows (PQA, then D/B per metric) and the same five
 metric columns; bold marks stay as each writer set them (best per column within its dataset).
-Each half gets a Y-PSNR column: every row is read at PQA's Y-PSNR cost on its set (work/qpa_cost.json for Kodak,
-\clicAt for CLIC), so the column is that cost, as in the old CLIC table.  tabular* stretched to \textwidth.
+Every row is read at PQA's Y-PSNR cost on its set (work/qpa_cost.json for Kodak, \clicAt for CLIC); the cost is
+stated once in each group header rather than repeated as a column.
 Writes tables/table_kodak_clic.tex.
 """
 import json
@@ -26,16 +26,15 @@ K = rows(os.path.join(TAB, 'table1_paper.tex')); C = rows(os.path.join(TAB, 'tab
 assert len(K) == len(C), (len(K), len(C))
 KCOST = '$%+.1f$' % json.load(open('work/qpa_cost.json'))['psnr_y_bd_rate']
 CCOST = '$%s$' % re.search(r'\\clicAt\}\{([^}]+)\}', open(os.path.join(TAB, 'clic_macros.tex')).read()).group(1)   # literal: the table* is input before clic_macros
-lines = ['\\begin{tabular}{llrrrrrr|rrrrrr}', '\\toprule',
-         ' & & \\multicolumn{6}{c}{Kodak} & \\multicolumn{6}{c}{CLIC} \\\\',
-         '\\cmidrule(lr){3-8}\\cmidrule(lr){9-14}']
+lines = ['\\begin{tabular}{llrrrrr|rrrrr}', '\\toprule',
+         ' & & \\multicolumn{5}{c}{Kodak (Y-PSNR cost %s\\,\\%%)} & \\multicolumn{5}{c}{CLIC (Y-PSNR cost %s\\,\\%%)} \\\\' % (KCOST, CCOST),
+         '\\cmidrule(lr){3-7}\\cmidrule(lr){8-12}']
 for k, c in zip(K, C):
     lab = lambda x: re.sub(r'\\rowcolor\{metband\}', '', x).strip()
     head = k[1].strip() == 'Map'
     assert head or (lab(k[0]) == lab(c[0]) and k[1] == c[1]), (k[:2], c[:2])   # same row labels
     assert len(k) == 7 and len(c) == 7, (len(k), len(c))
-    kc, cc = ('Y-PSNR', 'Y-PSNR') if head else (KCOST, CCOST)
-    lines.append(' & '.join(k[:2] + [kc] + k[2:] + [cc] + c[2:]) + ' \\\\')
+    lines.append(' & '.join(k + c[2:]) + ' \\\\')
     if k[0].strip() in ('RDO Target', 'Target') or k[1].strip() == 'PQA':
         lines.append('\\midrule')
 lines += ['\\bottomrule', '\\end{tabular}']
