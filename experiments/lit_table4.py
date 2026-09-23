@@ -26,7 +26,7 @@ def main():
     lp_m, lp_l = at_cost(fam[LP], THEIR_LP[0])     # our LPIPS map at their opt.-LPIPS cost: both columns
     q = solo['qpa230']
     rows = [('Zero QP map \\cite{yang2025bit}',                    -2.75,  -3.46,  -2.42),
-            ('\\texttt{PerceptQPA} \\cite{yang2025bit}',             2.85, -11.86, -11.96),
+            ('\\texttt{PerceptQPA} (reported in \\cite{yang2025bit})', 2.85, -11.86, -11.96),
             ('\\texttt{PerceptQPA} (our run)',                        q[0],   q[1],   q[2]),
             ("Yang \\& Baji\\'c \\cite{yang2025bit}, opt. MS-SSIM", THEIR_MS[0], THEIR_MS[1], THEIR_MS[2]),
             ('Ours, opt. MS-SSIM',                                  THEIR_MS[0], ms_m, ms_l),
