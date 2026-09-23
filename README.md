@@ -1,13 +1,13 @@
-# Rate-distortion optimization for full-reference image quality metrics via stochastic curvature estimates
+# Rate-distortion optimization for full-reference image quality metrics via stochastic Hessian estimates
 
 Code, VTM encoder patches and result summaries for
 
 > S. Fernández-Menduiña, E. Pavez, and A. Ortega, "Rate-distortion optimization for full-reference image quality
-> metrics via stochastic curvature estimates," submitted to IEEE ICASSP 2027.
+> metrics via stochastic Hessian estimates," submitted to IEEE ICASSP 2027.
 
 ```bibtex
 @inproceedings{fernandez2027rdo,
-  title     = {Rate-Distortion Optimization for Full-Reference Image Quality Metrics via Stochastic Curvature Estimates},
+  title     = {Rate-Distortion Optimization for Full-Reference Image Quality Metrics via Stochastic {H}essian Estimates},
   author    = {Fern\'andez-Mendui\~na, Samuel and Pavez, Eduardo and Ortega, Antonio},
   booktitle = {IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
   year      = {2027},

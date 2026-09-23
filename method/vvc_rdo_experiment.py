@@ -414,7 +414,17 @@ def main():
     ap.add_argument('--work', default=os.path.join(HERE, 'work'))
     ap.add_argument('--out', default=os.path.join(HERE, 'results'))
     ap.add_argument('--extra', nargs='*', default=[], help='extra encoder options')
+    ap.add_argument('--run-tag', default='', help='suffix added to the configuration tags and the JSON name (not to the map cache): '
+                    'lets one map series be encoded under several encoder settings, e.g. --extra --WeightedRdoMask=N')
+    ap.add_argument('--encoder-bin', default='', help='encoder binary to use instead of VTM_WMSE/bin/EncoderAppStatic')
+    ap.add_argument('--drop-recs', action='store_true', help='delete the reconstructions of the weighted configurations after scoring (bitstreams kept)')
+    ap.add_argument('--rdo-mask', type=int, default=None, help='WeightedRdoMask of the decision-ablation encoder (VTM_WMSE_abl); appended to the weighted encodes')
     a = ap.parse_args()
+    if a.rdo_mask is not None:
+        a.extra = list(a.extra) + [f'--WeightedRdoMask={a.rdo_mask}']
+    if a.encoder_bin:
+        global ENCODER
+        ENCODER = os.path.abspath(a.encoder_bin)        # inherited by the forked encode workers
 
     os.makedirs(a.work, exist_ok=True)
     os.makedirs(a.out, exist_ok=True)
@@ -461,7 +471,7 @@ def main():
         return out
 
     # ---- stage 3: encodes -------------------------------------------------------------
-    sfx = ('_' + a.weight_tag) if a.weight_tag else ''
+    sfx = (('_' + a.weight_tag) if a.weight_tag else '') + (('_' + a.run_tag) if a.run_tag else '')
     configs = [('anchor', None, 0.0, False)]
     for tau in a.taus:
         configs.append((f'w{a.metric.lower()}{sfx}_tau{tau:g}', a.metric, tau, False))
@@ -540,6 +550,14 @@ def main():
                 torch.cuda.empty_cache()
             except Exception:
                 pass
+        if a.drop_recs:
+            for tag, met, tau, rdoq in configs:
+                if met:
+                    for qp in a.qps:
+                        try:
+                            os.remove(os.path.join(od, f'{tag}_qp{qp}_rec.yuv'))
+                        except FileNotFoundError:
+                            pass
         print(f'  metrics {stem} done', flush=True)
 
     # ---- stage 5: BD-rate --------------------------------------------------------------
