@@ -1,11 +1,9 @@
-"""Table 4: head-to-head with [yang2025bit] under their own protocol.
+"""Table 3: head-to-head with [yang2025bit] under their own protocol.
 
-Every row is one configuration they report, at the RGB-PSNR BD-rate they report for it.  Our columns are
-our method read at that same cost, so each line compares two allocations that paid the same price in
-fidelity -- the comparison the earlier version of this table could not make, because the rows sat at
-different operating points.  Ours uses the map matched to the column's metric, mirroring their own
-"opt. SSIM / opt. MS-SSIM / opt. LPIPS" rows.  Anchor, encoder version (VTM-23.0), CTC QPs, chroma
-allocation and the RGB metric convention are theirs throughout.
+Two target-matched pairs: their "opt. MS-SSIM" row and our MS-SSIM-RGB map read at the RGB-PSNR cost they report
+for it, then their "opt. LPIPS" row and our LPIPS-Alex map read at its cost.  Each of our rows is ONE map (both
+columns from the same sweep), so the pair compares two allocations built for the same metric at the same fidelity
+loss.  Anchor, encoder version (VTM-23.0), CTC QPs, chroma allocation and the RGB metric convention are theirs.
 """
 import csv, os, sys
 import numpy as np
@@ -15,30 +13,32 @@ from litqp_match import THEIRS, families, at_cost
 # MS-SSIM-RGB map and LPIPS-Alex map families (weighted RDOQ on).  LIT_MS / LIT_LP select the series shown:
 # 'rq_mrgbd'/'rq_alexd' are the diagonal maps, 'rqb_mrgbb'/'rqb_alexb' the block maps (12 Sept grid).
 MS, LP = os.environ.get('LIT_MS', 'rqb_mrgbb'), os.environ.get('LIT_LP', 'rqb_alexb')   # paper rows: block maps; LIT_MS=rq_mrgbd LIT_LP=rq_alexd gives the diagonal-map row
-MATCH  = 0.98                            # their best configuration's RGB-PSNR cost; ours is read there
+# their two 'Transfer' rows we pair with (RGB-PSNR cost, MS-SSIM, LPIPS-Alex), as reported in yang2025bit
+THEIR_MS = (0.98, -11.88, -10.96)
+THEIR_LP = (-0.10, -8.55, -8.33)
 
 def plain(s):
     return s.replace('\\texttt{', '').replace('}', '').replace('\\&', '&').replace("\\'", '')
 
 def main():
     fam, solo = families(os.environ.get('LIT_CSV', 'results/litqp/summary.csv'))
-    ms_o = at_cost(fam[MS], MATCH)[0]
-    lp_o = at_cost(fam[LP], MATCH)[1]
+    ms_m, ms_l = at_cost(fam[MS], THEIR_MS[0])     # our MS-SSIM map at their opt.-MS-SSIM cost: both columns
+    lp_m, lp_l = at_cost(fam[LP], THEIR_LP[0])     # our LPIPS map at their opt.-LPIPS cost: both columns
     q = solo['qpa230']
-    # one row per method, each at its own RGB-PSNR cost; ours is read at the cost of the method it is
-    # being compared with, so the last two lines are a like-for-like pair
-    rows = [('Zero QP map \\cite{yang2025bit}',        -2.75,  -3.46,  -2.42),
-            ('\\texttt{PerceptQPA} \\cite{yang2025bit}', 2.85, -11.86, -11.96),
-            ('\\texttt{PerceptQPA} (our run)',            q[0],   q[1],   q[2]),
-            ("Yang \\& Baji\\'c \\cite{yang2025bit}",   0.98, -11.88, -10.96),
-            ('Ours',                                    MATCH,  ms_o,   lp_o)]
+    rows = [('Zero QP map \\cite{yang2025bit}',                    -2.75,  -3.46,  -2.42),
+            ('\\texttt{PerceptQPA} \\cite{yang2025bit}',             2.85, -11.86, -11.96),
+            ('\\texttt{PerceptQPA} (our run)',                        q[0],   q[1],   q[2]),
+            ("Yang \\& Baji\\'c \\cite{yang2025bit}, opt. MS-SSIM", THEIR_MS[0], THEIR_MS[1], THEIR_MS[2]),
+            ('Ours, opt. MS-SSIM',                                  THEIR_MS[0], ms_m, ms_l),
+            ("Yang \\& Baji\\'c \\cite{yang2025bit}, opt. LPIPS",   THEIR_LP[0], THEIR_LP[1], THEIR_LP[2]),
+            ('Ours, opt. LPIPS',                                    THEIR_LP[0], lp_m, lp_l)]
     bm = min(r[2] for r in rows); bl = min(r[3] for r in rows)
     def c(v, best):
         return f'$\\mathbf{{{v:+.2f}}}$' if abs(v - best) < 1e-9 else f'${v:+.2f}$'
     L = ['\\begin{tabular}{lrrr}', '\\toprule',
          'Allocation & RGB-PSNR & MS-SSIM & LPIPS \\\\', '\\midrule']
     for i, (lab, cost, m, l) in enumerate(rows):
-        if i == len(rows) - 1: L.append('\\midrule')
+        if i in (3, 5): L.append('\\midrule')          # a rule before each target-matched pair
         L.append(f'{lab} & ${cost:+.2f}$ & {c(m, bm)} & {c(l, bl)} \\\\')
     L += ['\\bottomrule', '\\end{tabular}']
     os.makedirs('tables', exist_ok=True)
