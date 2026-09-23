@@ -19,11 +19,11 @@ for r in rows:
 AT = (json.load(open('work/qpa_cost.json'))['psnr_y_bd_rate'] if os.path.exists('work/qpa_cost.json')
       else json.load(open('work/qpa_bd_ctc.json'))['bd_rate_vs_anchor']['psnr_y'])
 COLS = [('LPIPS', 'bd_lpips'), ('DISTS', 'bd_dists'), ('WD', 'bd_wd2')]
-ROWS = [('diagonal GN, $R{=}1$',                 ('wlpips_gn',        'wdists_dgn',        'wwd_gn')),
-        ('diagonal GN, smoothed $\\sigma{=}3$',   ('wlpips_gnj3',      'wdists_dgnj3',      'wwd_gnj3')),
-        ('block GN, $R{=}1$',                     ('wlpips_gnb8',      'wdists_dgnb8',      'wwd_gnb8')),
-        ('block GN, smoothed $\\sigma{=}3$',       ('wlpips_bh8',       'wdists_dgnb8j3',    'wwd_gnb8j3')),
-        ('block Hutchinson (HVP), PSD, same $m$', ('wlpips_hb8m256psd','wdists_dhb8m256psd','wwd_hb8m256psd'))]
+ROWS = [('Diagonal GN, $R{=}1$',                 ('wlpips_gn',        'wdists_dgn',        'wwd_gn')),
+        ('Diagonal GN, smoothed $\\sigma{=}3$',   ('wlpips_gnj3',      'wdists_dgnj3',      'wwd_gnj3')),
+        ('Block GN, $R{=}1$',                     ('wlpips_gnb8',      'wdists_dgnb8',      'wwd_gnb8')),
+        ('Block GN, smoothed $\\sigma{=}3$',       ('wlpips_bh8',       'wdists_dgnb8j3',    'wwd_gnb8j3')),
+        ('Block HVP', ('wlpips_hb8m256psd','wdists_dhb8m256psd','wwd_hb8m256psd'))]
 
 def at_cost(base, key):
     """(value at AT, inside-grid flag, n_alphas); None when the sweep has fewer than two points."""
@@ -41,9 +41,13 @@ def fmt(c):
 
 lines = ['\\begin{tabular}{lccc}', '\\toprule', 'Map & LPIPS & DISTS & WD \\\\', '\\midrule']
 out = []
-for label, bases in ROWS:
-    cells = [at_cost(b, k) for b, (_, k) in zip(bases, COLS)]
-    lines.append(f'{label} & ' + ' & '.join(fmt(c) for c in cells) + ' \\\\')
+allcells = [[at_cost(b, k) for b, (_, k) in zip(bases, COLS)] for _, bases in ROWS]
+best = [min((c[0] for c in col if c is not None), default=None) for col in zip(*allcells)]   # best (most negative) per column
+def fmtb(c, b):
+    t = fmt(c)
+    return t.replace(f'${c[0]:+.1f}$', f'$\\mathbf{{{c[0]:+.1f}}}$') if c is not None and b is not None and abs(c[0] - b) < 5e-2 else t
+for (label, bases), cells in zip(ROWS, allcells):
+    lines.append(f'{label} & ' + ' & '.join(fmtb(c, b) for c, b in zip(cells, best)) + ' \\\\')
     rec = {'row': label, 'at_ypsnr': AT}
     for (name, _), b, c in zip(COLS, bases, cells):
         rec[f'{name.lower()}_base'] = b

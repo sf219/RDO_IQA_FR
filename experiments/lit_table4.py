@@ -32,14 +32,14 @@ def main():
             ('Ours, opt. MS-SSIM',                                  THEIR_MS[0], ms_m, ms_l),
             ("Yang \\& Baji\\'c \\cite{yang2025bit}, opt. LPIPS",   THEIR_LP[0], THEIR_LP[1], THEIR_LP[2]),
             ('Ours, opt. LPIPS',                                    THEIR_LP[0], lp_m, lp_l)]
-    bm = min(r[2] for r in rows); bl = min(r[3] for r in rows)
+    bp = min(r[1] for r in rows); bm = min(r[2] for r in rows); bl = min(r[3] for r in rows)   # best per column, RGB-PSNR included
     def c(v, best):
         return f'$\\mathbf{{{v:+.2f}}}$' if abs(v - best) < 1e-9 else f'${v:+.2f}$'
     L = ['\\begin{tabular}{lrrr}', '\\toprule',
          'Allocation & RGB-PSNR & MS-SSIM & LPIPS \\\\', '\\midrule']
     for i, (lab, cost, m, l) in enumerate(rows):
-        if i in (3, 5): L.append('\\midrule')          # a rule before each target-matched pair
-        L.append(f'{lab} & ${cost:+.2f}$ & {c(m, bm)} & {c(l, bl)} \\\\')
+        if i == 3: L.append('\\midrule')               # baselines above, the two target-matched pairs below
+        L.append(f'{lab} & {c(cost, bp)} & {c(m, bm)} & {c(l, bl)} \\\\')
     L += ['\\bottomrule', '\\end{tabular}']
     os.makedirs('tables', exist_ok=True)
     open('tables/table4_literature.tex', 'w').write('\n'.join(L) + '\n')

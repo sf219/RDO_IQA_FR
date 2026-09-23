@@ -32,7 +32,7 @@ def read_bh_diag_y(p):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--image', default='kodim23')
-    ap.add_argument('--out', default='paper/figures/maps.png')
+    ap.add_argument('--out', default='figures/maps.png')
     a = ap.parse_args()
     y, u, v = read_yuv420(f'work/yuv/{a.image}.yuv', W, H)
     t = lambda x: torch.from_numpy(x).float()[None, None]
@@ -60,7 +60,7 @@ def main():
     cax = fig.add_axes([0.912, 0.02, 0.018, 0.86])
     cb = fig.colorbar(im, cax=cax)          # no label: the caption says the scale is log10 of the weight
     cb.ax.tick_params(labelsize=6, length=2, pad=1.2)
-    os.makedirs('paper/figures', exist_ok=True)
+    os.makedirs('figures', exist_ok=True)
     fig.savefig(a.out, bbox_inches='tight', dpi=320)
     print(a.out)
 

@@ -33,7 +33,7 @@ else:
     M, CARD = {}, 'legacy'
 def mp(m, k): return M.get(f'{m}|{k}', np.nan)
 
-fig, (axL, axR) = plt.subplots(1, 2, figsize=(7.2, 1.85), sharey=True)
+fig, (axL, axR) = plt.subplots(1, 2, figsize=(7.2, 1.5), sharey=True)
 x = np.arange(len(METS)); w = 0.38
 for ax, f, title in ((axL, enc, 'Encoding'), (axR, mp, 'Curvature estimation')):
     for i, k in enumerate(('diag', 'block')):
@@ -48,7 +48,7 @@ for ax, f, title in ((axL, enc, 'Encoding'), (axR, mp, 'Curvature estimation')):
 axL.set_ylabel('Time (s)', fontsize=15)
 axL.axhline(anchor, color='k', lw=1.0, ls='--')   # SSE-RDO encode time; named in the caption
 h = [plt.Rectangle((0, 0), 1, 1, facecolor='0.6', hatch=hh, edgecolor='white', linewidth=.4) for hh in ('', '///')]
-axR.legend(h, ['diagonal', 'block'], fontsize=9, ncol=2, frameon=False, loc='upper right')
+axR.legend(h, ['diagonal', 'block'], fontsize=11, ncol=2, frameon=False, loc='upper right')
 fig.tight_layout()
 os.makedirs('figures', exist_ok=True)
 fig.savefig('figures/complexity_bar.png', bbox_inches='tight', dpi=300)
