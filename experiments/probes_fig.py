@@ -72,7 +72,7 @@ for met, (pre, full, key) in SER.items():
     if xs:
         ax.plot(xs, ys, marker='o', ms=3.5, lw=1.3, color=COL[met], label=NAME[met])
 ax.set_xscale('log')
-ax.set_xlabel('Curvature estimation time (s)', fontsize=9)
+ax.set_xlabel('Hessian estimation time (s)', fontsize=9)
 ax.set_ylabel('BD-rate (%)', fontsize=9)
 ax.grid(alpha=.3, ls='--', which='both'); ax.set_axisbelow(True); ax.tick_params(labelsize=8)
 for sp in ('top', 'right'):

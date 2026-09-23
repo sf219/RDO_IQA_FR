@@ -35,7 +35,7 @@ def mp(m, k): return M.get(f'{m}|{k}', np.nan)
 
 fig, (axL, axR) = plt.subplots(1, 2, figsize=(7.2, 1.5), sharey=True)
 x = np.arange(len(METS)); w = 0.38
-for ax, f, title in ((axL, enc, 'Encoding'), (axR, mp, 'Curvature estimation')):
+for ax, f, title in ((axL, enc, 'Encoding'), (axR, mp, 'Hessian estimation')):
     for i, k in enumerate(('diag', 'block')):
         ax.bar(x + (i - 0.5) * w, [f(m, k) for m in METS], w,
                color=[COL[m] for m in METS], hatch='' if k == 'diag' else '///',
