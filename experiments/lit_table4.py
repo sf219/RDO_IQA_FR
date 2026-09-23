@@ -39,7 +39,8 @@ def main():
          'Allocation & RGB-PSNR & MS-SSIM & LPIPS \\\\', '\\midrule']
     for i, (lab, cost, m, l) in enumerate(rows):
         if i == 3: L.append('\\midrule')               # baselines above, the two target-matched pairs below
-        L.append(f'{lab} & {c(cost, bp)} & {c(m, bm)} & {c(l, bl)} \\\\')
+        band = '\\rowcolor{pairms}' if i in (3, 4) else '\\rowcolor{pairlp}' if i in (5, 6) else ''   # one pastel per pair (colours defined in main.tex)
+        L.append(f'{band}{lab} & {c(cost, bp)} & {c(m, bm)} & {c(l, bl)} \\\\')
     L += ['\\bottomrule', '\\end{tabular}']
     os.makedirs('tables', exist_ok=True)
     open('tables/table4_literature.tex', 'w').write('\n'.join(L) + '\n')
