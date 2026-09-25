@@ -35,6 +35,7 @@ vtm/           encoder patches
 experiments/   one script per table and figure, the per-run results and CSV summaries they read, and their outputs
   results/     per-image scores (vvc_rdo_*.json, clic/done*/) and summaries      tables/  the paper's tables      figures/  the paper's figures
 REPRODUCE.md   every number in the paper, the command that produced it, and the conventions
+decision_ablation/   side study, not in the paper: which RDO decisions carry the gain (own README, table, runs, encoder patch)
 ```
 
 | paper item | script in `experiments/` |
@@ -80,6 +81,12 @@ cd experiments && python results_to_csv.py && python plots/make_all.py   # the s
 Datasets: Kodak (24 images) and the CLIC 2022 professional validation set; see `REPRODUCE.md`. Set `EVAL_WD=1`
 to score Wasserstein Distortion. Paths to the encoder binaries and to the datasets are set at the top of
 `method/vvc_rdo_experiment.py` and of the two shell scripts.
+
+## Side study (not in the paper)
+
+`decision_ablation/` switches the weighted distortion on or off per RDO decision (partition, LFNST, MTS, luma mode, ISP,
+chroma, RDOQ lambda) with an extra encoder option and reads each mask at the paper's matched cost. It has its own README,
+summary, run JSONs and patch, and shares nothing with the reproduction above.
 
 ## License
 

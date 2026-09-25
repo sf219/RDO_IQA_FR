@@ -1,0 +1,670 @@
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/App/EncoderApp/EncAppCfg.cpp VTM_WMSE_abl/source/App/EncoderApp/EncAppCfg.cpp
+--- VTM_WMSE/source/App/EncoderApp/EncAppCfg.cpp	2026-08-31 11:49:00.932705159 -0700
++++ VTM_WMSE_abl/source/App/EncoderApp/EncAppCfg.cpp	2026-09-23 08:47:19.784718792 -0700
+@@ -1130,6 +1130,7 @@
+   ("WeightedRdoq",                                    m_weightedRdoq,                                   false, "Also scale the transform-domain (RDOQ) lambda by the mean weight of the block")
+   ("WeightedRdoGlobalNorm",                           m_weightedRdoGlobalNorm,                          false, "Normalise the three weight planes together, keeping the metric's luma/chroma balance, instead of one mean per plane")
+   ("WeightedRdoBlockFile",                            m_weightedRdoBlockFile,                   std::string(""), "Binary file with per-block Hessians (non-diagonal); overrides the diagonal weighting")
++  ("WeightedRdoMask",                                 m_weightedRdoMask,                                   255, "Bit mask of the RDO decisions that compare with the weighted distortion: 1 partition, 2 LFNST index, 4 MTS flag, 8 MTS/TS type, 16 luma mode, 32 ISP, 64 chroma, 128 RDOQ lambda (255 = all, 0 = plain SSE everywhere)")
+   ("LMCSSignalType",                                  m_reshapeSignalType,                                 0u, "Input signal type: 0:SDR, 1:HDR-PQ, 2:HDR-HLG")
+   ("LMCSUpdateCtrl",                                  m_updateCtrl,                                         0, "LMCS model update control: 0:RA, 1:AI, 2:LDB/LDP")
+   ("LMCSAdpOption",                                   m_adpOption,                                          0, "LMCS adaptation options: 0:automatic(default),"
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/App/EncoderApp/EncAppCfg.h VTM_WMSE_abl/source/App/EncoderApp/EncAppCfg.h
+--- VTM_WMSE/source/App/EncoderApp/EncAppCfg.h	2026-08-31 11:49:00.930705167 -0700
++++ VTM_WMSE_abl/source/App/EncoderApp/EncAppCfg.h	2026-09-23 08:47:19.783718797 -0700
+@@ -417,6 +417,7 @@
+   bool        m_weightedRdoq;
+   bool        m_weightedRdoGlobalNorm;
+   std::string m_weightedRdoBlockFile;
++  int         m_weightedRdoMask;
+   uint32_t  m_reshapeSignalType;
+   uint32_t  m_intraCMD;
+   ReshapeCW m_reshapeCW;
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/App/EncoderApp/EncApp.cpp VTM_WMSE_abl/source/App/EncoderApp/EncApp.cpp
+--- VTM_WMSE/source/App/EncoderApp/EncApp.cpp	2026-08-31 11:49:00.932705159 -0700
++++ VTM_WMSE_abl/source/App/EncoderApp/EncApp.cpp	2026-09-23 08:47:19.785718788 -0700
+@@ -1526,6 +1526,7 @@
+   m_cEncLib.setWeightedRdoq                                      ( m_weightedRdoq );
+   m_cEncLib.setWeightedRdoGlobalNorm                             ( m_weightedRdoGlobalNorm );
+   m_cEncLib.setWeightedRdoBlockFile                              ( m_weightedRdoBlockFile );
++  m_cEncLib.setWeightedRdoMask                                   ( m_weightedRdoMask );
+   m_cEncLib.setReshapeSignalType                                 ( m_reshapeSignalType );
+   m_cEncLib.setReshapeIntraCMD                                   ( m_intraCMD );
+   m_cEncLib.setReshapeCW                                         ( m_reshapeCW );
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/Lib/CommonLib/CodingStructure.cpp VTM_WMSE_abl/source/Lib/CommonLib/CodingStructure.cpp
+--- VTM_WMSE/source/Lib/CommonLib/CodingStructure.cpp	2025-02-04 07:23:23.000000000 -0800
++++ VTM_WMSE_abl/source/Lib/CommonLib/CodingStructure.cpp	2026-09-23 08:47:19.771718852 -0700
+@@ -1715,6 +1715,8 @@
+   {
+     fracBits += subStruct.fracBits;
+     dist     += subStruct.dist;
++    distW    += subStruct.distW;
++    distP    += subStruct.distP;
+     cost     += subStruct.cost;
+     costDbOffset += subStruct.costDbOffset;
+     useInterlayerRef |= subStruct.useInterlayerRef;
+@@ -1776,6 +1778,9 @@
+ {
+   fracBits = other.fracBits;
+   dist     = other.dist;
++  distW    = other.distW;
++  distP    = other.distP;
++  fromSplit = other.fromSplit;
+   cost     = other.cost;
+   costDbOffset = other.costDbOffset;
+   useInterlayerRef = other.useInterlayerRef;
+@@ -1893,6 +1898,10 @@
+ 
+   fracBits = 0;
+   dist     = 0;
++  distW    = 0;
++  distP    = 0;
++  fromSplit = false;
++  cmpCost  = -1.0;
+   cost     = MAX_DOUBLE;
+   lumaCost = MAX_DOUBLE;
+   costDbOffset = 0;
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/Lib/CommonLib/CodingStructure.h VTM_WMSE_abl/source/Lib/CommonLib/CodingStructure.h
+--- VTM_WMSE/source/Lib/CommonLib/CodingStructure.h	2025-02-04 07:23:23.000000000 -0800
++++ VTM_WMSE_abl/source/Lib/CommonLib/CodingStructure.h	2026-09-23 08:47:19.771718852 -0700
+@@ -195,6 +195,10 @@
+   bool        useInterlayerRef;
+   uint64_t    fracBits;
+   Distortion  dist;
++  Distortion  distW;      // map-weighted distortion of the structure (decision ablation)
++  Distortion  distP;      // plain SSE distortion
++  bool        fromSplit;  // the structure is the result of a split candidate
++  double      cmpCost;    // comparison cost set by EncCu::xCheckBestMode (< 0: use the RD cost)
+   Distortion  interHad;
+   TreeType    treeType; //because partitioner can not go deep to tu and cu coding (e.g., addCU()), need another variable for indicating treeType
+   ModeType    modeType;
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/Lib/CommonLib/RdCost.cpp VTM_WMSE_abl/source/Lib/CommonLib/RdCost.cpp
+--- VTM_WMSE/source/Lib/CommonLib/RdCost.cpp	2026-09-03 13:12:52.542438092 -0700
++++ VTM_WMSE_abl/source/Lib/CommonLib/RdCost.cpp	2026-09-23 08:47:19.771718852 -0700
+@@ -366,20 +366,31 @@
+     cDtParam.orgLuma  = org;
+   }
+ 
+-  Distortion dist;
++  Distortion dist, distP;
+   if (isChroma(compID) && (m_signalType == RESHAPE_SIGNAL_SDR || m_signalType == RESHAPE_SIGNAL_HLG))
+   {
+-       cDtParam.distFunc = attachWeights(cDtParam, org, compID)
+-                             ? DistFunc(xGetSSEWeighted)
+-                             : m_distortionFunc[DFunc::SSE + sizeOffset<false>(org.width)];
++       const bool wtd = attachWeights(cDtParam, org, compID);
+        int64_t weight = m_chromaWeight;
+-       dist = (weight * cDtParam.distFunc(cDtParam ) + (1 << MSE_WEIGHT_FRAC_BITS >> 1)) >> (MSE_WEIGHT_FRAC_BITS);
++       cDtParam.distFunc = m_distortionFunc[DFunc::SSE + sizeOffset<false>(org.width)];
++       distP = (weight * cDtParam.distFunc(cDtParam ) + (1 << MSE_WEIGHT_FRAC_BITS >> 1)) >> (MSE_WEIGHT_FRAC_BITS);
++       if (wtd)
++       {
++         cDtParam.distFunc = DistFunc(xGetSSEWeighted);
++         dist = (weight * cDtParam.distFunc(cDtParam ) + (1 << MSE_WEIGHT_FRAC_BITS >> 1)) >> (MSE_WEIGHT_FRAC_BITS);
++       }
++       else
++       {
++         dist = distP;
++       }
+   }
+   else
+   {
+     cDtParam.cShiftX = getComponentScaleX(compID,  m_cf);
+     cDtParam.cShiftY = getComponentScaleY(compID,  m_cf);
+-    if (attachWeights(cDtParam, org, compID))
++    const bool wtd = attachWeights(cDtParam, org, compID);
++    cDtParam.distFuncWtd = m_distortionFuncWtd[distFuncWtd + sizeOffset<false>(org.width)];
++    distP = cDtParam.distFuncWtd(this, cDtParam);
++    if (wtd)
+     {
+       // the block-Hessian form is defined on the plain error, so the luma-level reshaping
+       // weight is folded in as a scalar over the block rather than per sample
+@@ -387,14 +398,16 @@
+     }
+     else
+     {
+-      cDtParam.distFuncWtd = m_distortionFuncWtd[distFuncWtd + sizeOffset<false>(org.width)];
+-      dist = cDtParam.distFuncWtd(this, cDtParam);
++      dist = distP;
+     }
+   }
+   if (isChroma(compID))
+   {
+-    dist = (Distortion)(m_distortionWeight[MAP_CHROMA(compID)] * dist);
++    dist  = (Distortion)(m_distortionWeight[MAP_CHROMA(compID)] * dist);
++    distP = (Distortion)(m_distortionWeight[MAP_CHROMA(compID)] * distP);
+   }
++  m_lastDistW = dist;
++  m_lastDistP = distP;
+   return dist;
+ }
+ #endif
+@@ -411,23 +424,26 @@
+ 
+   if (distFunc == DFunc::SSE && attachWeights(cDtParam, org, compID))
+   {
+-    cDtParam.distFunc = m_weightMap->hasBlocks()
+-                          ? DistFunc([this](const DistParam &p) { return xGetSSEBlockHessian(p); })
+-                          : DistFunc(xGetSSEWeighted);
+-  }
+-  else
+-  {
+-    cDtParam.distFunc = m_distortionFunc[distFunc + sizeOffset<false>(org.width)];
++    // both distortions of the block: the map-weighted one and the plain SSE; each decision picks its own
++    Distortion w = m_weightMap->hasBlocks() ? xGetSSEBlockHessian(cDtParam) : xGetSSEWeighted(cDtParam);
++    Distortion p = m_distortionFunc[DFunc::SSE + sizeOffset<false>(org.width)](cDtParam);
++    if (isChroma(compID))
++    {
++      w = (Distortion) (m_distortionWeight[MAP_CHROMA(compID)] * w);
++      p = (Distortion) (m_distortionWeight[MAP_CHROMA(compID)] * p);
++    }
++    m_lastDistW = w;
++    m_lastDistP = p;
++    return w;
+   }
+-
++  cDtParam.distFunc = m_distortionFunc[distFunc + sizeOffset<false>(org.width)];
++  Distortion d = cDtParam.distFunc(cDtParam);
+   if (isChroma(compID))
+   {
+-    return ((Distortion) (m_distortionWeight[ MAP_CHROMA(compID) ] * cDtParam.distFunc( cDtParam )));
+-  }
+-  else
+-  {
+-    return cDtParam.distFunc( cDtParam );
++    d = (Distortion) (m_distortionWeight[MAP_CHROMA(compID)] * d);
+   }
++  m_lastDistW = m_lastDistP = d;
++  return d;
+ }
+ 
+ // ====================================================================================================================
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/Lib/CommonLib/RdCost.h VTM_WMSE_abl/source/Lib/CommonLib/RdCost.h
+--- VTM_WMSE/source/Lib/CommonLib/RdCost.h	2026-08-31 11:48:44.465770164 -0700
++++ VTM_WMSE_abl/source/Lib/CommonLib/RdCost.h	2026-09-23 09:02:00.132696332 -0700
+@@ -45,6 +45,9 @@
+ #include "Slice.h"
+ #include "RdCostWeightPrediction.h"
+ #include "WeightMap.h"
++
++// which RDO decision a distortion comparison belongs to (bit index in WeightedRdoMask)
++enum DecisionCtx { CTX_PART = 0, CTX_LFNST = 1, CTX_MTSFLAG = 2, CTX_MTSTYPE = 3, CTX_LUMAMODE = 4, CTX_ISP = 5, CTX_CHROMA = 6, CTX_RDOQ = 7 };
+ #include <math.h>
+ #include <functional>
+ 
+@@ -170,6 +173,10 @@
+   int                     m_orgOriginHeight[2][MAX_NUM_COMPONENT] = { { 0, 0, 0 }, { 0, 0, 0 } };
+   mutable uint64_t        m_weightedCalls   = 0;
+   mutable uint64_t        m_unweightedCalls = 0;
++  // ---- decision-level ablation: which decisions see the weighted distortion ----------------
++  int                     m_decisionMask = 0xFF;
++  mutable Distortion      m_lastDistW = 0;   // weighted and plain distortion of the last SSE call
++  mutable Distortion      m_lastDistP = 0;
+ 
+   template<bool allowOddSizes> static DFuncDiff sizeOffset(const uint32_t width)
+   {
+@@ -539,6 +546,29 @@
+   }
+   void resetWeightedRdoStats() { m_weightedCalls = m_unweightedCalls = 0; }
+ 
++  void       setDecisionMask(int m)                        { m_decisionMask = m; }
++  int        getDecisionMask() const                       { return m_decisionMask; }
++  bool       ctxWeighted(int ctx) const                    { return ((m_decisionMask >> ctx) & 1) != 0; }
++  Distortion pick(int ctx, Distortion w, Distortion p) const { return ctxWeighted(ctx) ? w : p; }
++  void       getLastDistPair(Distortion &w, Distortion &p) const { w = m_lastDistW; p = m_lastDistP; }
++  double     distToCost(Distortion d) const
++  {
++#if WCG_EXT
++    return m_distScaleUnadjusted * double(d);
++#else
++    return m_distScale * double(d);
++#endif
++  }
++  //! RD cost of a candidate whose cost was computed from `dist`, re-expressed with distortion `pickd`
++  double     adjCost(double cost, Distortion dist, Distortion pickd) const
++  {
++    if (pickd == dist || cost >= MAX_DOUBLE / 2)
++    {
++      return cost;   // exact: no floating-point round trip when nothing changes
++    }
++    return cost - distToCost(dist) + distToCost(pickd);
++  }
++
+   static Distortion xGetSSEWeighted(const DistParam &rcDtParam);
+   Distortion        xGetSSEBlockHessian(const DistParam &rcDtParam) const;
+   Distortion        xGetSSEWeighted_WTD(const DistParam &rcDtParam) const;
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/Lib/EncoderLib/EncCfg.h VTM_WMSE_abl/source/Lib/EncoderLib/EncCfg.h
+--- VTM_WMSE/source/Lib/EncoderLib/EncCfg.h	2026-08-31 11:49:00.930705167 -0700
++++ VTM_WMSE_abl/source/Lib/EncoderLib/EncCfg.h	2026-09-23 08:47:19.783718797 -0700
+@@ -413,6 +413,7 @@
+   bool        m_weightedRdoq   = false;
+   bool        m_weightedRdoGlobalNorm = false;
+   std::string m_weightedRdoBlockFile;
++  int         m_weightedRdoMask = 0xFF;
+   unsigned  m_reshapeSignalType;
+   unsigned  m_intraCMD;
+   ReshapeCW m_reshapeCW;
+@@ -1690,6 +1691,8 @@
+   void        setWeightedRdoBlockFile(const std::string &f) { m_weightedRdoBlockFile = f; }
+   const std::string &getWeightedRdoBlockFile() const        { return m_weightedRdoBlockFile; }
+   bool        getWeightedRdoq  () const                     { return m_weightedRdoq; }
++  void        setWeightedRdoMask(int m)                     { m_weightedRdoMask = m; }
++  int         getWeightedRdoMask() const                    { return m_weightedRdoMask; }
+   void      setReshapeSignalType            ( uint32_t signalType )      { m_reshapeSignalType = signalType; }
+   uint32_t  getReshapeSignalType            () const                     { return m_reshapeSignalType; }
+   void      setReshapeIntraCMD              (uint32_t intraCMD)          { m_intraCMD = intraCMD; }
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/Lib/EncoderLib/EncCu.cpp VTM_WMSE_abl/source/Lib/EncoderLib/EncCu.cpp
+--- VTM_WMSE/source/Lib/EncoderLib/EncCu.cpp	2025-02-04 07:23:23.000000000 -0800
++++ VTM_WMSE_abl/source/Lib/EncoderLib/EncCu.cpp	2026-09-23 10:03:50.154239775 -0700
+@@ -462,7 +462,21 @@
+     DTRACE_BEST_MODE( tempCS, bestCS, m_pcRdCost->getLambda() );
+ #endif
+ 
+-    if( m_modeCtrl->useModeResult( encTestMode, tempCS, partitioner ) )
++    // decision-level ablation: which decision is this comparison, and which distortion does it use
++    {
++      int cmpCtx = CTX_PART;
++      if (!isModeSplit(encTestMode) && !bestCS->fromSplit && !bestCS->cus.empty())
++      {
++        const CodingUnit &tc = *tempCS->cus.front();
++        const CodingUnit &bc = *bestCS->cus.front();
++        cmpCtx = (tc.lfnstIdx != bc.lfnstIdx) ? CTX_LFNST : (tc.mtsFlag != bc.mtsFlag) ? CTX_MTSFLAG : CTX_LFNST;
++      }
++      tempCS->cmpCost = m_pcRdCost->adjCost(tempCS->cost, tempCS->dist, m_pcRdCost->pick(cmpCtx, tempCS->distW, tempCS->distP));
++      bestCS->cmpCost = m_pcRdCost->adjCost(bestCS->cost, bestCS->dist, m_pcRdCost->pick(cmpCtx, bestCS->distW, bestCS->distP));
++    }
++    const bool chosen = m_modeCtrl->useModeResult( encTestMode, tempCS, partitioner );
++    tempCS->cmpCost = bestCS->cmpCost = -1.0;
++    if( chosen )
+     {
+       std::swap( tempCS, bestCS );
+       // store temp best CI for next CU coding
+@@ -1242,6 +1256,7 @@
+       if( bestSubCS->cost == MAX_DOUBLE )
+       {
+         CHECK( split == CU_QUAD_SPLIT, "Split decision reusing cannot skip quad split" );
++        tempCS->fromSplit = true;
+         tempCS->cost = MAX_DOUBLE;
+         tempCS->costDbOffset = 0;
+         tempCS->useDbCost = m_pcEncCfg->getUseEncDbOpt();
+@@ -1495,6 +1510,7 @@
+   }
+ 
+   splitRdCostBest[getPartSplit(encTestMode)] = tempCS->cost;
++  tempCS->fromSplit = true;
+   // RD check for sub partitioned coding structure.
+   xCheckBestMode( tempCS, bestCS, partitioner, encTestMode );
+ 
+@@ -1937,6 +1953,7 @@
+   tempCS->addTU(CS::getArea(*tempCS, tempCS->area, partitioner.chType), partitioner.chType);
+   // Search
+   tempCS->dist = 0;
++  tempCS->distW = tempCS->distP = 0;
+   if (cu.isSepTree())
+   {
+     if (isLuma(partitioner.chType))
+@@ -4476,11 +4493,16 @@
+     }
+ 
+     Distortion finalDistortion = 0;
++    Distortion fdW = 0, fdP = 0;   // weighted / plain distortion of the cached reconstruction (decision ablation)
++    // the stored distortion follows the decision that would have produced it in a fresh encode: luma TUs pick under
++    // the transform-type (or ISP) context, chroma under the chroma context
++    const int lumaCtx = (tempCS->cus.front()->ispMode != ISPType::NONE) ? CTX_ISP : CTX_MTSTYPE;
+     tempCS->useDbCost = m_pcEncCfg->getUseEncDbOpt();
+     if (!tempCS->slice->getDeblockingFilterDisable() && m_pcEncCfg->getUseEncDbOpt())
+     {
+       xCalDebCost( *tempCS, partitioner, true );
+       finalDistortion = tempCS->dist;
++      fdW = fdP = finalDistortion;
+     }
+     else
+     {
+@@ -4512,20 +4534,22 @@
+             PelBuf   tmpRecLuma = m_tmpStorageCtu->getBuf(tmpArea);
+             tmpRecLuma.copyFrom(reco);
+             tmpRecLuma.rspSignal(m_pcReshape->getInvLUT());
+-            finalDistortion += m_pcRdCost->getDistPart(org, tmpRecLuma, sps.getBitDepth(toChannelType(compID)), compID,
+-                                                       DFuncWtd::SSE_WTD, orgLuma);
++            (void) m_pcRdCost->getDistPart(org, tmpRecLuma, sps.getBitDepth(toChannelType(compID)), compID,
++                                           DFuncWtd::SSE_WTD, orgLuma);
++            { Distortion w_, p_; m_pcRdCost->getLastDistPair(w_, p_); fdW += w_; fdP += p_; finalDistortion += m_pcRdCost->pick(isLuma(compID) ? lumaCtx : CTX_CHROMA, w_, p_); }
+           }
+           else
+           {
+-            finalDistortion += m_pcRdCost->getDistPart(org, reco, sps.getBitDepth(toChannelType(compID)), compID,
+-                                                       DFuncWtd::SSE_WTD, orgLuma);
++            (void) m_pcRdCost->getDistPart(org, reco, sps.getBitDepth(toChannelType(compID)), compID,
++                                           DFuncWtd::SSE_WTD, orgLuma);
++            { Distortion w_, p_; m_pcRdCost->getLastDistPair(w_, p_); fdW += w_; fdP += p_; finalDistortion += m_pcRdCost->pick(isLuma(compID) ? lumaCtx : CTX_CHROMA, w_, p_); }
+           }
+         }
+         else
+ #endif
+         {
+-          finalDistortion +=
+-            m_pcRdCost->getDistPart(org, reco, sps.getBitDepth(toChannelType(compID)), compID, DFunc::SSE);
++          (void) m_pcRdCost->getDistPart(org, reco, sps.getBitDepth(toChannelType(compID)), compID, DFunc::SSE);
++          { Distortion w_, p_; m_pcRdCost->getLastDistPair(w_, p_); fdW += w_; fdP += p_; finalDistortion += m_pcRdCost->pick(isLuma(compID) ? lumaCtx : CTX_CHROMA, w_, p_); }
+         }
+       }
+     }
+@@ -4540,6 +4564,8 @@
+ 
+ 
+     tempCS->dist     = finalDistortion;
++    tempCS->distW    = fdW;
++    tempCS->distP    = fdP;
+     tempCS->fracBits = m_CABACEstimator->getEstFracBits();
+     tempCS->cost     = m_pcRdCost->calcRdCost( tempCS->fracBits, tempCS->dist );
+     if (m_pcEncCfg->getEncILOpt())
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/Lib/EncoderLib/EncLib.cpp VTM_WMSE_abl/source/Lib/EncoderLib/EncLib.cpp
+--- VTM_WMSE/source/Lib/EncoderLib/EncLib.cpp	2026-08-31 11:55:12.710091969 -0700
++++ VTM_WMSE_abl/source/Lib/EncoderLib/EncLib.cpp	2026-09-23 08:47:19.785718788 -0700
+@@ -210,6 +210,12 @@
+       EXIT("Weighted-MSE RDO: the block-Hessian file could not be loaded");
+     }
+     m_cRdCost.setWeightMap(&m_cWeightMap);
++    m_cRdCost.setDecisionMask(m_weightedRdoMask);
++    printf("Weighted-MSE RDO: decision mask = %d\n", m_weightedRdoMask);
++    if (m_weightedRdoMask != 0xFF && getUseEncDbOpt())
++    {
++      EXIT("WeightedRdoMask other than 255 needs EncDbOpt=0 (the deblocking-aware cost replaces the distortion)");
++    }
+   }
+ 
+   // initialize PPS
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/Lib/EncoderLib/EncModeCtrl.cpp VTM_WMSE_abl/source/Lib/EncoderLib/EncModeCtrl.cpp
+--- VTM_WMSE/source/Lib/EncoderLib/EncModeCtrl.cpp	2025-02-04 07:23:23.000000000 -0800
++++ VTM_WMSE_abl/source/Lib/EncoderLib/EncModeCtrl.cpp	2026-09-23 08:47:19.772718847 -0700
+@@ -2279,7 +2279,7 @@
+     else
+     {
+       // for now just a simple decision based on RD-cost or choose tempCS if bestCS is not yet coded
+-      chooseTemp = ( tempCS->features[ENC_FT_RD_COST] + ( tempCS->useDbCost ? tempCS->costDbOffset : 0 ) ) < ( cuECtx.bestCS->features[ENC_FT_RD_COST] + ( tempCS->useDbCost ? cuECtx.bestCS->costDbOffset : 0 ) );
++      chooseTemp = ( (tempCS->cmpCost >= 0 ? tempCS->cmpCost : tempCS->features[ENC_FT_RD_COST]) + ( tempCS->useDbCost ? tempCS->costDbOffset : 0 ) ) < ( (cuECtx.bestCS->cmpCost >= 0 ? cuECtx.bestCS->cmpCost : cuECtx.bestCS->features[ENC_FT_RD_COST]) + ( tempCS->useDbCost ? cuECtx.bestCS->costDbOffset : 0 ) );
+ 
+       // Adjust criterion to choose mode with inter-layer prediction if it has lower modified RD cost with lambda modifier (regardless of original RD cost).
+       if (m_pcEncCfg->getEncILOpt() && tempCS->useInterlayerRef != cuECtx.bestCS->useInterlayerRef)
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/Lib/EncoderLib/IntraSearch.cpp VTM_WMSE_abl/source/Lib/EncoderLib/IntraSearch.cpp
+--- VTM_WMSE/source/Lib/EncoderLib/IntraSearch.cpp	2026-08-30 22:20:44.269631313 -0700
++++ VTM_WMSE_abl/source/Lib/EncoderLib/IntraSearch.cpp	2026-09-23 09:56:32.230156354 -0700
+@@ -1322,8 +1322,11 @@
+               m_numSavedRdModeFirstColorSpace[m_savedRdModeIdx]);
+           }
+         }
+-        // check r-d cost
+-        if( csTemp->cost < csBest->cost )
++        // check r-d cost (decision-level ablation: ISP candidates use CTX_ISP, the rest CTX_LUMAMODE)
++        const bool ispCmp = (cu.ispMode != ISPType::NONE) || (!csBest->cus.empty() && csBest->cus[0]->ispMode != ISPType::NONE);
++        const int  cmpCtx = ispCmp ? CTX_ISP : CTX_LUMAMODE;
++        if (m_pcRdCost->adjCost(csTemp->cost, csTemp->dist, m_pcRdCost->pick(cmpCtx, csTemp->distW, csTemp->distP))
++            < m_pcRdCost->adjCost(csBest->cost, csBest->dist, m_pcRdCost->pick(cmpCtx, csBest->distW, csBest->distP)))
+         {
+           std::swap( csTemp, csBest );
+ 
+@@ -1441,6 +1444,7 @@
+   {
+     uint32_t   bestMode      = 0;
+     Distortion bestDist      = 0;
++    Distortion bestDistW = 0, bestDistP = 0;
+     double     bestCost      = MAX_DOUBLE;
+     BdpcmMode  bestBDPCMMode = BdpcmMode::NONE;
+ 
+@@ -1623,6 +1627,7 @@
+ 
+       // save the dist
+       Distortion baseDist = cs.dist;
++      const Distortion baseDistW = cs.distW, baseDistP = cs.distP;
+ 
+       const bool testBDPCM =
+         CU::bdpcmAllowed(cu, COMPONENT_Cb) && cu.ispMode == ISPType::NONE && cu.mtsFlag == 0 && cu.lfnstIdx == 0;
+@@ -1651,6 +1656,8 @@
+         }
+         cs.setDecomp( pu.Cb(), false );
+         cs.dist = baseDist;
++        cs.distW = baseDistW;
++        cs.distP = baseDistP;
+         //----- restore context models -----
+         m_CABACEstimator->getCtx() = ctxStart;
+ 
+@@ -1711,6 +1718,8 @@
+ 
+           bestCost      = cost;
+           bestDist      = dist;
++          bestDistW     = cs.distW;
++          bestDistP     = cs.distP;
+           bestMode      = chromaIntraMode;
+           bestBDPCMMode = cu.bdpcmModeChroma;
+         }
+@@ -1739,6 +1748,8 @@
+ 
+     pu.intraDir[ChannelType::CHROMA] = bestMode;
+     cs.dist            = bestDist;
++    cs.distW           = bestDistW;
++    cs.distP           = bestDistP;
+     cu.bdpcmModeChroma = bestBDPCMMode;
+   }
+ 
+@@ -3222,6 +3233,8 @@
+                                       const int &default0Save1Load2, uint32_t *numSig, TrModeList *trModes,
+                                       const bool loadTr)
+ {
++  m_tuDistW = m_tuDistP = 0;
++  m_tuDistValid = false;
+   if (!tu.blocks[compID].valid())
+   {
+     return;
+@@ -3357,7 +3370,7 @@
+   // weighted-MSE RDO: the transform is orthonormal, so a block whose pixels carry mean
+   // importance wbar has a coefficient-domain distortion of about wbar * SSE.  Minimising
+   // wbar * SSE + lambda * R is the same as minimising SSE + (lambda / wbar) * R.
+-  if (m_pcEncCfg->getWeightedRdoq() && m_pcRdCost->isWeightedRdo())
++  if (m_pcEncCfg->getWeightedRdoq() && m_pcRdCost->isWeightedRdo() && m_pcRdCost->ctxWeighted(CTX_RDOQ))
+   {
+     const double wbar = m_pcRdCost->getWeightMap()->getMeanWeight(compID, area.x, area.y, (int) area.width,
+                                                                   (int) area.height);
+@@ -3544,6 +3557,7 @@
+ 
+ 
+   //===== update distortion =====
++  m_tuDistValid = true;
+ #if WCG_EXT
+   if (m_pcEncCfg->getLumaLevelToDeltaQPMapping().isEnabled() || (m_pcEncCfg->getLmcs()
+     && slice.getLmcsEnabledFlag() && (m_pcReshape->getCTUFlag() || (isChroma(compID) && m_pcEncCfg->getReshapeIntraCMD()))))
+@@ -3557,13 +3571,16 @@
+       tmpRecLuma.rspSignal(m_pcReshape->getInvLUT());
+       dist += m_pcRdCost->getDistPart(piOrg, tmpRecLuma, sps.getBitDepth(toChannelType(compID)), compID, DFuncWtd::SSE_WTD,
+                                       orgLuma);
++      xAccTuDist();
+     }
+     else
+     {
+       dist += m_pcRdCost->getDistPart(piOrg, piReco, bitDepth, compID, DFuncWtd::SSE_WTD, orgLuma);
++      xAccTuDist();
+       if( jointCbCr )
+       {
+         dist += m_pcRdCost->getDistPart(crOrg, crReco, bitDepth, COMPONENT_Cr, DFuncWtd::SSE_WTD, orgLuma);
++        xAccTuDist();
+       }
+     }
+   }
+@@ -3571,9 +3588,11 @@
+ #endif
+   {
+     dist += m_pcRdCost->getDistPart(piOrg, piReco, bitDepth, compID, DFunc::SSE);
++    xAccTuDist();
+     if( jointCbCr )
+     {
+       dist += m_pcRdCost->getDistPart(crOrg, crReco, bitDepth, COMPONENT_Cr, DFunc::SSE);
++      xAccTuDist();
+     }
+   }
+ }
+@@ -3775,6 +3794,8 @@
+       cs.cost = MAX_DOUBLE;
+       return false;
+     }
++    const Distortion tuDistW = m_tuDistW, tuDistP = m_tuDistP;
++    if (m_tuDistValid) { singleDistTmpLuma = m_pcRdCost->pick(CTX_ISP, tuDistW, tuDistP); }
+ 
+     if (m_pcRdCost->calcRdCost(cs.fracBits, cs.dist + singleDistTmpLuma) > bestCostSoFar)
+     {
+@@ -3790,6 +3811,8 @@
+ 
+     cs.cost += singleCostTmp;
+     cs.dist += singleDistTmpLuma;
++    cs.distW += tuDistW;
++    cs.distP += tuDistP;
+     cs.fracBits += singleTmpFracBits;
+ 
+     subTuCounter++;
+@@ -3868,6 +3891,7 @@
+ 
+   double     singleCost                         = MAX_DOUBLE;
+   Distortion singleDistLuma                     = 0;
++  Distortion bestDistW = 0, bestDistP = 0;   // both distortions of the chosen transform candidate
+   uint64_t   singleFracBits                     = 0;
+   bool       checkTransformSkip                 = sps.getTransformSkipEnabledFlag();
+   uint8_t    nNumTransformCands                 = cu.mtsFlag ? 4 : 1;
+@@ -3960,6 +3984,7 @@
+     TransformUnit *tmpTU = nullptr;
+ 
+     Distortion singleDistTmpLuma = 0;
++    Distortion tuDistW = 0, tuDistP = 0;
+     uint64_t   singleTmpFracBits = 0;
+     double     singleCostTmp     = 0;
+     int        firstCheckId      = (sps.getUseLFNST() && mtsCheckRangeFlag && cu.mtsFlag) ? mtsFirstCheckId : 0;
+@@ -4079,6 +4104,8 @@
+         if( !cu.mtsFlag && checkTransformSkip )
+         {
+           xIntraCodingTUBlock( tu, COMPONENT_Y, singleDistTmpLuma, default0Save1Load2, &numSig, modeId == 0 ? &trModes : nullptr, true );
++          tuDistW = m_tuDistW; tuDistP = m_tuDistP;
++          if (m_tuDistValid) { singleDistTmpLuma = m_pcRdCost->pick(CTX_MTSTYPE, tuDistW, tuDistP); }
+           if( modeId == 0 )
+           {
+             for( int i = 0; i < 2; i++ )
+@@ -4093,6 +4120,8 @@
+         else
+         {
+           xIntraCodingTUBlock( tu, COMPONENT_Y, singleDistTmpLuma, default0Save1Load2, &numSig );
++          tuDistW = m_tuDistW; tuDistP = m_tuDistP;
++          if (m_tuDistValid) { singleDistTmpLuma = m_pcRdCost->pick(CTX_MTSTYPE, tuDistW, tuDistP); }
+         }
+       }
+       else
+@@ -4100,6 +4129,8 @@
+         if( nNumTransformCands > 1 )
+         {
+           xIntraCodingTUBlock( tu, COMPONENT_Y, singleDistTmpLuma, default0Save1Load2, &numSig, modeId == 0 ? &trModes : nullptr, true );
++          tuDistW = m_tuDistW; tuDistP = m_tuDistP;
++          if (m_tuDistValid) { singleDistTmpLuma = m_pcRdCost->pick(CTX_MTSTYPE, tuDistW, tuDistP); }
+           if( modeId == 0 )
+           {
+             for( int i = 0; i < nNumTransformCands; i++ )
+@@ -4114,6 +4145,8 @@
+         else
+         {
+           xIntraCodingTUBlock( tu, COMPONENT_Y, singleDistTmpLuma, default0Save1Load2, &numSig );
++          tuDistW = m_tuDistW; tuDistP = m_tuDistP;
++          if (m_tuDistValid) { singleDistTmpLuma = m_pcRdCost->pick(CTX_MTSTYPE, tuDistW, tuDistP); }
+         }
+       }
+ 
+@@ -4160,6 +4193,8 @@
+         singleCost     = singleCostTmp;
+         singleDistLuma = singleDistTmpLuma;
+         singleFracBits = singleTmpFracBits;
++        bestDistW      = tuDistW;
++        bestDistP      = tuDistP;
+ 
+         if( sps.getUseLFNST() )
+         {
+@@ -4231,6 +4266,8 @@
+ 
+       csFull->cost += singleCost;
+       csFull->dist += singleDistLuma;
++      csFull->distW += bestDistW;
++      csFull->distP += bestDistP;
+       csFull->fracBits += singleFracBits;
+     }
+   }
+@@ -5179,6 +5216,7 @@
+     double     bestCostCr     = MAX_DOUBLE;
+     Distortion bestDistCb     = 0;
+     Distortion bestDistCr     = 0;
++    Distortion bestDistCbW = 0, bestDistCbP = 0, bestDistCrW = 0, bestDistCrP = 0;
+     int        maxModesTested = 0;
+     bool       earlyExitISP   = false;
+ 
+@@ -5347,6 +5385,8 @@
+         {
+           xIntraCodingTUBlock(currTU, compID, singleDistCTmp, default0Save1Load2);
+         }
++        const Distortion tuDistW = m_tuDistW, tuDistP = m_tuDistP;
++        if (m_tuDistValid) { singleDistCTmp = m_pcRdCost->pick(CTX_CHROMA, tuDistW, tuDistP); }
+ 
+         if (((currTU.mtsIdx[compID] == MtsType::SKIP && currTU.cu->bdpcmModeChroma == BdpcmMode::NONE)
+              && !TU::getCbf(currTU, compID)))   // In order not to code TS flag when cbf is zero, the case for TS with
+@@ -5386,11 +5426,13 @@
+           {
+             bestCostCb = singleCostTmp;
+             bestDistCb = singleDistCTmp;
++            bestDistCbW = tuDistW; bestDistCbP = tuDistP;
+           }
+           else
+           {
+             bestCostCr = singleCostTmp;
+             bestDistCr = singleDistCTmp;
++            bestDistCrW = tuDistW; bestDistCrP = tuDistP;
+           }
+ 
+           if (currTU.mtsIdx[compID] == MtsType::DCT2_DCT2)
+@@ -5442,6 +5484,7 @@
+       // Test using joint chroma residual coding
+       double     bestCostCbCr   = bestCostCb + bestCostCr;
+       Distortion bestDistCbCr   = bestDistCb + bestDistCr;
++      Distortion bestDistCbCrW = bestDistCbW + bestDistCrW, bestDistCbCrP = bestDistCbP + bestDistCrP;
+       int        bestJointCbCr  = 0;
+       CbfMaskList jointCbfMasksToTest;
+ 
+@@ -5517,6 +5560,8 @@
+           {
+             xIntraCodingTUBlock(currTU, COMPONENT_Cb, distTmp, 0);
+           }
++          const Distortion tuDistW = m_tuDistW, tuDistP = m_tuDistP;
++          if (m_tuDistValid) { distTmp = m_pcRdCost->pick(CTX_CHROMA, tuDistW, tuDistP); }
+           double costTmp = std::numeric_limits<double>::max();
+           if (distTmp < std::numeric_limits<Distortion>::max())
+           {
+@@ -5536,6 +5581,7 @@
+           {
+             bestCostCbCr  = costTmp;
+             bestDistCbCr  = distTmp;
++            bestDistCbCrW = tuDistW; bestDistCbCrP = tuDistP;
+             bestJointCbCr = currTU.jointCbCr;
+ 
+             // store data
+@@ -5599,6 +5645,8 @@
+ 
+       currTU.jointCbCr = ( (cbfs.cbf(COMPONENT_Cb) + cbfs.cbf(COMPONENT_Cr)) ? bestJointCbCr : 0 );
+       cs.dist         += bestDistCbCr;
++      cs.distW        += bestDistCbCrW;
++      cs.distP        += bestDistCbCrP;
+     }
+   }
+   else
+diff -urN '--exclude=build' '--exclude=bin' '--exclude=*.orig' '--exclude=.git' VTM_WMSE/source/Lib/EncoderLib/IntraSearch.h VTM_WMSE_abl/source/Lib/EncoderLib/IntraSearch.h
+--- VTM_WMSE/source/Lib/EncoderLib/IntraSearch.h	2025-02-04 07:23:23.000000000 -0800
++++ VTM_WMSE_abl/source/Lib/EncoderLib/IntraSearch.h	2026-09-23 09:11:03.967214160 -0700
+@@ -380,6 +380,10 @@
+   static_vector<double, FAST_UDI_MAX_RDMODE_NUM>   m_savedHadListLFNST;
+ 
+   PelStorage      m_tmpStorageCtu;
++  Distortion      m_tuDistW = 0;   // weighted / plain distortion accumulated by the last xIntraCodingTUBlock call
++  Distortion      m_tuDistP = 0;
++  bool            m_tuDistValid = false;   // false when xIntraCodingTUBlock left through a sentinel (dist = MAX)
++  void xAccTuDist() { Distortion w, p; m_pcRdCost->getLastDistPair(w, p); m_tuDistW += w; m_tuDistP += p; }
+   PelStorage      m_colorTransResiBuf;
+ 
+   std::vector<TransformUnit *> m_orgTUs;
