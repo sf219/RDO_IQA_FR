@@ -47,18 +47,18 @@ reference, all decisions weighted (mask 255): target -15.5
 
 ## DISTS  (series `wdists_dgnb8j3`, target column `dists`)
 
-reference, all decisions weighted (mask 255): target 
+reference, all decisions weighted (mask 255): target -17.3
 
 | decision | leave-one-out mask | target BD (LOO) | gain lost | only-one mask | target BD (ONLY, matched cost) | ONLY peak BD (tau, cost, max cost) | LOO psnr_y | LOO ssim | LOO ms_ssim | LOO lpips | LOO dists | LOO wd2 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| partition | 254 |  |  | 1 |  |  |  |  |  |  |  |  |
-| LFNST index | 253 |  |  | 2 |  |  |  |  |  |  |  |  |
-| MTS flag | 251 |  |  | 4 |  |  |  |  |  |  |  |  |
-| MTS/TS type | 247 |  |  | 8 |  |  |  |  |  |  |  |  |
-| luma mode | 239 |  |  | 16 |  |  |  |  |  |  |  |  |
-| ISP | 223 |  |  | 32 |  |  |  |  |  |  |  |  |
-| chroma | 191 |  |  | 64 |  |  |  |  |  |  |  |  |
-| RDOQ lambda | 127 |  |  | 128 |  |  |  |  |  |  |  |  |
+| partition | 254 | -11.8 | +5.5 | 1 | -8.0 | -8.4 (tau 4, +2.5 %, max +11.3 %) | +8.1 | +5.7 | +5.3 | -0.8 | -11.8 | -1.3 |
+| LFNST index | 253 | -16.3 | +1.0 | 2 | -0.7* | -2.4 (tau 0.25, +2.0 %, max +4.1 %) | +8.1 | +5.1 | +4.8 | -3.8 | -16.3 | -4.7 |
+| MTS flag | 251 | -17.0 | +0.3 | 4 | -1.6* | -1.6 (tau 0.03125, +0.9 %, max +0.9 %) | +8.1 | +5.2 | +4.8 | -4.0 | -17.0 | -5.1 |
+| MTS/TS type | 247 | -17.9 | -0.6 | 8 | -0.1* | -1.0 (tau 0.25, +1.1 %, max +1.3 %) | +8.1 | +5.0 | +4.8 | -4.3 | -17.9 | -5.2 |
+| luma mode | 239 | -16.6 | +0.7 | 16 | -3.5* | -3.5 (tau 0.03125, +2.0 %, max +2.0 %) | +8.1 | +5.1 | +4.8 | -3.5 | -16.6 | -4.8 |
+| ISP | 223 | -17.0 | +0.4 | 32 | +0.7* | -0.7 (tau 4, +0.2 %, max +2.1 %) | +8.1 | +5.0 | +4.7 | -4.0 | -17.0 | -5.0 |
+| chroma | 191 | -15.4 | +1.9 | 64 | -1.2* | -1.8 (tau 2, +0.2 %, max +0.4 %) | +8.1 | +4.8 | +4.5 | -3.6 | -15.4 | -3.5 |
+| RDOQ lambda | 127 | -14.9 | +2.4 | 128 | +1.7 | -1.6 (tau 2, +0.5 %, max +12.7 %) | +8.1 | +5.3 | +5.0 | -3.4 | -14.9 | -4.5 |
 
 ## WD  (series `wwd_gnb8j3`, target column `wd2`)
 
