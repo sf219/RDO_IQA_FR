@@ -62,17 +62,17 @@ reference, all decisions weighted (mask 255): target -17.3
 
 ## WD  (series `wwd_gnb8j3`, target column `wd2`)
 
-reference, all decisions weighted (mask 255): target 
+reference, all decisions weighted (mask 255): target -19.2
 
 | decision | leave-one-out mask | target BD (LOO) | gain lost | only-one mask | target BD (ONLY, matched cost) | ONLY peak BD (tau, cost, max cost) | LOO psnr_y | LOO ssim | LOO ms_ssim | LOO lpips | LOO dists | LOO wd2 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| partition | 254 |  |  | 1 |  |  |  |  |  |  |  |  |
-| LFNST index | 253 |  |  | 2 |  |  |  |  |  |  |  |  |
-| MTS flag | 251 |  |  | 4 |  |  |  |  |  |  |  |  |
-| MTS/TS type | 247 |  |  | 8 |  |  |  |  |  |  |  |  |
-| luma mode | 239 |  |  | 16 |  |  |  |  |  |  |  |  |
-| ISP | 223 |  |  | 32 |  |  |  |  |  |  |  |  |
-| chroma | 191 |  |  | 64 |  |  |  |  |  |  |  |  |
-| RDOQ lambda | 127 |  |  | 128 |  |  |  |  |  |  |  |  |
+| partition | 254 | -11.8 | +7.4 | 1 | -9.0 | -9.2 (tau 0.5, +5.7 %, max +8.7 %) | +8.1 | -6.3 | -5.1 | -8.9 | -10.9 | -11.8 |
+| LFNST index | 253 | -17.8 | +1.4 | 2 | -1.8* | -2.0 (tau 0.125, +0.9 %, max +1.0 %) | +8.1 | -8.5 | -7.2 | -12.3 | -14.0 | -17.8 |
+| MTS flag | 251 | -18.8 | +0.3 | 4 | -0.8* | -0.8 (tau 0.0625, +0.6 %, max +0.6 %) | +8.1 | -8.8 | -7.5 | -12.7 | -14.0 | -18.8 |
+| MTS/TS type | 247 | -19.0 | +0.1 | 8 | +0.4* | -0.0 (tau 4, +0.1 %, max +0.9 %) | +8.1 | -9.0 | -7.6 | -12.8 | -14.8 | -19.0 |
+| luma mode | 239 | -18.0 | +1.2 | 16 | -1.5* | -1.7 (tau 0.0625, +1.1 %, max +1.2 %) | +8.1 | -7.4 | -6.4 | -11.8 | -13.7 | -18.0 |
+| ISP | 223 | -18.5 | +0.6 | 32 | +0.1* | -0.3 (tau 2, +0.2 %, max +1.0 %) | +8.1 | -8.7 | -7.2 | -12.8 | -14.5 | -18.5 |
+| chroma | 191 | -15.1 | +4.0 | 64 | -2.7* | -2.7 (tau 0.0625, +0.4 %, max +0.4 %) | +8.1 | -10.0 | -8.5 | -11.9 | -12.8 | -15.1 |
+| RDOQ lambda | 127 | -17.8 | +1.3 | 128 | -3.0* | -3.1 (tau 0.0625, +4.0 %, max +4.7 %) | +8.1 | -8.1 | -6.8 | -12.0 | -13.6 | -17.8 |
 
 Negative BD-rate = saving on that metric versus the SSE anchor. "gain lost" = leave-one-out minus reference (positive: the decision contributes). `*` = the +8.15 % point lies outside the tau sweep; the value shown is the nearest sweep endpoint (np.interp clamps), not an extrapolation.
