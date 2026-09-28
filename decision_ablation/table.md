@@ -2,18 +2,18 @@
 
 ## SSIM  (series `wssim_sbh8m256`, target column `ssim`)
 
-reference, all decisions weighted (mask 255): target 
+reference, all decisions weighted (mask 255): target -23.6
 
 | decision | leave-one-out mask | target BD (LOO) | gain lost | only-one mask | target BD (ONLY, matched cost) | ONLY peak BD (tau, cost, max cost) | LOO psnr_y | LOO ssim | LOO ms_ssim | LOO lpips | LOO dists | LOO wd2 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| partition | 254 |  |  | 1 |  |  |  |  |  |  |  |  |
-| LFNST index | 253 |  |  | 2 |  |  |  |  |  |  |  |  |
-| MTS flag | 251 |  |  | 4 |  |  |  |  |  |  |  |  |
-| MTS/TS type | 247 |  |  | 8 |  |  |  |  |  |  |  |  |
-| luma mode | 239 |  |  | 16 |  |  |  |  |  |  |  |  |
-| ISP | 223 |  |  | 32 |  |  |  |  |  |  |  |  |
-| chroma | 191 |  |  | 64 |  |  |  |  |  |  |  |  |
-| RDOQ lambda | 127 |  |  | 128 |  |  |  |  |  |  |  |  |
+| partition | 254 | -14.2 | +9.4 | 1 | -14.3 | -14.3 (tau 0.125, +10.4 %, max +10.4 %) | +8.1 | -14.2 | -6.0 | -3.6 | -0.8 | -4.7 |
+| LFNST index | 253 | -22.2 | +1.5 | 2 | -1.3* | -1.7 (tau 0.5, +0.9 %, max +2.6 %) | +8.1 | -22.2 | -7.9 | -2.4 | +1.3 | -4.9 |
+| MTS flag | 251 | -22.8 | +0.8 | 4 | -2.3* | -2.3 (tau 0.25, +0.7 %, max +0.9 %) | +8.1 | -22.8 | -8.0 | -2.0 | +1.8 | -4.8 |
+| MTS/TS type | 247 | -23.2 | +0.4 | 8 | +0.7* | -0.1 (tau 4, +0.2 %, max +1.2 %) | +8.1 | -23.2 | -8.0 | -2.3 | +1.0 | -5.0 |
+| luma mode | 239 | -21.2 | +2.4 | 16 | -4.2* | -4.3 (tau 0.0625, +1.7 %, max +1.8 %) | +8.1 | -21.2 | -7.6 | -1.8 | +1.9 | -4.6 |
+| ISP | 223 | -22.6 | +1.0 | 32 | +0.9* | -0.3 (tau 2, +0.3 %, max +2.2 %) | +8.1 | -22.6 | -7.7 | -2.1 | +1.9 | -4.7 |
+| chroma | 191 | -23.6 | +0.0 | 64 | +0.0* | +0.0 (tau 0.5, +0.0 %, max +0.0 %) | +8.1 | -23.6 | -8.3 | -2.5 | +1.6 | -5.2 |
+| RDOQ lambda | 127 | -22.8 | +0.9 | 128 | -3.1 | -3.3 (tau 0.03125, +12.2 %, max +12.2 %) | +8.1 | -22.8 | -6.9 | -0.7 | +2.3 | -3.7 |
 
 ## MS_SSIM  (series `wms_ssim_mbh8m256`, target column `ms_ssim`)
 
