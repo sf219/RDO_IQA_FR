@@ -75,6 +75,22 @@ for met, (base, key) in SER.items():
                             one_peak_cost=pk[2] if pk else '', one_max_cost=pk[3] if pk else '',
                             **{f'loo_{q[3:]}': loo[0][q] if loo else '' for q in Q}, **{f'one_{q[3:]}': one[0][q] if one else '' for q in Q}))
     md.append('')
+# cross-metric summary: gain lost (LOO - ref) and only-one peak per decision, one column per metric
+xm = ['## Cross-metric summary', '', f'Reference (mask 255) at +{AT:.2f} %: ' + ', '.join(
+      f'{m} {cell(*((at_cost(b + "_m255") or at_cost(b))[0][k], True))}' for m, (b, k) in SER.items() if (at_cost(b + '_m255') or at_cost(b))), '',
+      'Gain lost when one decision goes back to SSE (leave-one-out minus reference; `*` = LOO read at a sweep endpoint):', '',
+      '| decision | ' + ' | '.join(SER) + ' |', '|---|' + '---|' * len(SER)]
+byd = collections.defaultdict(dict)
+for r in csvrows: byd[r['decision']][r['metric']] = r
+for _, name in DEC:
+    xm.append(f'| {name} | ' + ' | '.join(
+        (cell(byd[name][m]['gain_lost'], byd[name][m]['loo_inside'] == 1) if byd[name].get(m) and byd[name][m]['gain_lost'] != '' else '') for m in SER) + ' |')
+xm += ['', 'Best value on the sweep when only that decision is weighted (at whatever Y-PSNR cost it reaches; see the per-metric tables for tau and cost):', '',
+       '| decision | ' + ' | '.join(SER) + ' |', '|---|' + '---|' * len(SER)]
+for _, name in DEC:
+    xm.append(f'| {name} | ' + ' | '.join(
+        (cell(byd[name][m]['one_peak']) if byd[name].get(m) and byd[name][m]['one_peak'] != '' else '') for m in SER) + ' |')
+md = md[:2] + xm + [''] + md[2:]
 md += ['Negative BD-rate = saving on that metric versus the SSE anchor. "gain lost" = leave-one-out minus reference '
        '(positive: the decision contributes). `*` = the +8.15 % point lies outside the tau sweep; the value shown is the nearest sweep endpoint (np.interp clamps), not an extrapolation.']
 os.makedirs(OUT, exist_ok=True)

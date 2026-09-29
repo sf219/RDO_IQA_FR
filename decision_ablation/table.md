@@ -1,5 +1,35 @@
 # Decision ablation, block maps, Kodak, at +8.15 % Y-PSNR (interpolated along tau)
 
+## Cross-metric summary
+
+Reference (mask 255) at +8.15 %: SSIM -23.6, MS_SSIM -16.8, LPIPS -15.5, DISTS -17.3, WD -19.2
+
+Gain lost when one decision goes back to SSE (leave-one-out minus reference; `*` = LOO read at a sweep endpoint):
+
+| decision | SSIM | MS_SSIM | LPIPS | DISTS | WD |
+|---|---|---|---|---|---|
+| partition | +9.4 |  | +6.3 | +5.5 | +7.4 |
+| LFNST index | +1.5 |  | +0.7 | +1.0 | +1.4 |
+| MTS flag | +0.8 |  | +0.6 | +0.3 | +0.3 |
+| MTS/TS type | +0.4 |  | +0.6 | -0.6 | +0.1 |
+| luma mode | +2.4 |  | +1.1 | +0.7 | +1.2 |
+| ISP | +1.0 |  | +0.4 | +0.4 | +0.6 |
+| chroma | +0.0 |  | +0.5 | +1.9 | +4.0 |
+| RDOQ lambda | +0.9 |  | +3.5 | +2.4 | +1.3 |
+
+Best value on the sweep when only that decision is weighted (at whatever Y-PSNR cost it reaches; see the per-metric tables for tau and cost):
+
+| decision | SSIM | MS_SSIM | LPIPS | DISTS | WD |
+|---|---|---|---|---|---|
+| partition | -14.3 | -9.2 | -7.4 | -8.4 | -9.2 |
+| LFNST index | -1.7 | -1.2 | -1.3 | -2.4 | -2.0 |
+| MTS flag | -2.3 | -1.5 | -0.9 | -1.6 | -0.8 |
+| MTS/TS type | -0.1 | +0.0 | -0.2 | -1.0 | -0.0 |
+| luma mode | -4.3 |  | -1.8 | -3.5 | -1.7 |
+| ISP | -0.3 |  | -0.2 | -0.7 | -0.3 |
+| chroma | +0.0 |  | -0.7 | -1.8 | -2.7 |
+| RDOQ lambda | -3.3 |  | -1.2 | -1.6 | -3.1 |
+
 ## SSIM  (series `wssim_sbh8m256`, target column `ssim`)
 
 reference, all decisions weighted (mask 255): target -23.6
@@ -17,14 +47,14 @@ reference, all decisions weighted (mask 255): target -23.6
 
 ## MS_SSIM  (series `wms_ssim_mbh8m256`, target column `ms_ssim`)
 
-reference, all decisions weighted (mask 255): target 
+reference, all decisions weighted (mask 255): target -16.8
 
 | decision | leave-one-out mask | target BD (LOO) | gain lost | only-one mask | target BD (ONLY, matched cost) | ONLY peak BD (tau, cost, max cost) | LOO psnr_y | LOO ssim | LOO ms_ssim | LOO lpips | LOO dists | LOO wd2 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| partition | 254 |  |  | 1 |  |  |  |  |  |  |  |  |
-| LFNST index | 253 |  |  | 2 |  |  |  |  |  |  |  |  |
-| MTS flag | 251 |  |  | 4 |  |  |  |  |  |  |  |  |
-| MTS/TS type | 247 |  |  | 8 |  |  |  |  |  |  |  |  |
+| partition | 254 |  |  | 1 | -9.1 | -9.2 (tau 0.125, +6.4 %, max +8.5 %) |  |  |  |  |  |  |
+| LFNST index | 253 |  |  | 2 | -0.6* | -1.2 (tau 0.5, +0.7 %, max +2.4 %) |  |  |  |  |  |  |
+| MTS flag | 251 |  |  | 4 | -1.4* | -1.5 (tau 0.0625, +0.7 %, max +0.7 %) |  |  |  |  |  |  |
+| MTS/TS type | 247 |  |  | 8 | +0.5* | +0.0 (tau 4, +0.2 %, max +0.9 %) |  |  |  |  |  |  |
 | luma mode | 239 |  |  | 16 |  |  |  |  |  |  |  |  |
 | ISP | 223 |  |  | 32 |  |  |  |  |  |  |  |  |
 | chroma | 191 |  |  | 64 |  |  |  |  |  |  |  |  |
